@@ -297,44 +297,6 @@ begin
   g_item_name_map := item_name_map;
 end pre_val;
 
--- call before running validation for a tabular form record
-procedure pre_val_row
-  (label_map        in str_map /*map column name to user-friendly label*/
-  ,region_static_id in varchar2
-  ,column_alias_map in str_map /*map column name to Apex column alias*/
-  ) is
-  scope  logger_logs.scope%type := scope_prefix || 'pre_val_row';
-  params logger.tab_param;
-  region_id  number;
-  row_num    number      := nv('APEX$ROW_NUM');
-  row_status varchar2(1) := v('APEX$ROW_STATUS');
-begin
-  logger.append_param(params, 'region_static_id', region_static_id);
-  logger.append_param(params, 'APEX$ROW_NUM', row_num);
-  logger.append_param(params, 'APEX$ROW_STATUS', row_status);
-  logger.log('START', scope, null, params);
-
-  assert(region_static_id is not null, 'region_static_id cannot be null', scope);
-  assert(row_num is not null, 'APEX$ROW_NUM is null', scope);
-  assert(row_status is not null, 'APEX$ROW_STATUS is null', scope);
-
-  region_id := apex_region_id(region_static_id);
-
-  assert(region_id is not null, 'Unable to determine region ID (' || region_static_id || ')', scope);
-
-  reset_val;
-
-  g_label_map        := label_map;
-  g_region_id        := region_id;
-  g_column_alias_map := column_alias_map;
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end pre_val_row;
-
 -- call after running validation
 procedure post_val is
   scope  logger_logs.scope%type := scope_prefix || 'post_val';
@@ -1099,34 +1061,6 @@ function apex_page_id return number is
 begin
   return apex_application.g_flow_step_id;
 end apex_page_id;
-
-function apex_region_id (static_id in varchar2) return number is
-  scope  logger_logs.scope%type := scope_prefix || 'apex_region_id';
-  params logger.tab_param;
-  region_id number;
-begin
-  logger.append_param(params, 'static_id', static_id);
-  logger.log('START', scope, null, params);
-
-  assert(apex_application.g_flow_step_id is not null, 'no apex app/page (apex_region_id not called in an Apex session? (' || scope || ')', scope);
-
-  select r.region_id
-  into   apex_region_id.region_id
-  from   apex_application_page_regions r
-  where  r.static_id      = apex_region_id.static_id
-  and    r.page_id        = apex_application.g_flow_step_id
-  and    r.application_id = apex_application.g_flow_id;
-
-  logger.log('END', scope, 'region_id=' || region_id, params);
-  return region_id;
-exception
-  when no_data_found then
-    logger.log_error('Apex page region not found', scope, null, params);
-    raise_application_error(-20000, 'Apex region not found (' || static_id || ') in ' || apex_application.g_flow_id || ':' || apex_application.g_flow_step_id);
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end apex_region_id;
 
 procedure append_apex_params (params in out logger.tab_param) is
 begin

@@ -115,13 +115,6 @@ procedure pre_val
   (label_map     in str_map /*map column name to user-friendly label*/
   ,item_name_map in str_map /*map column name to APEX page item*/);
 
--- call before running validation for a tabular form record
--- Either region_id or region_static_id must be specified
-procedure pre_val_row
-  (label_map        in str_map /*map column name to user-friendly label*/
-  ,region_static_id in varchar2
-  ,column_alias_map in str_map /*map column name to APEX column alias*/);
-
 -- call after running validation
 procedure post_val;
 
@@ -293,9 +286,6 @@ function apex_app_id return number;
 
 -- return the current page ID
 function apex_page_id return number;
-
--- return the region ID for the given static ID
-function apex_region_id (static_id in varchar2) return number;
 
 -- append various apex-related parameters
 procedure append_apex_params (params in out logger.tab_param);

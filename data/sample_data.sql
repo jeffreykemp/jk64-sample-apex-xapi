@@ -1,35 +1,35 @@
-CREATE OR REPLACE PROCEDURE reset_sample_data AS
-BEGIN
+create or replace procedure reset_sample_data as
+begin
 
-DELETE events;
-DELETE venues;
-DELETE hosts;
-DELETE event_types;
+delete events;
+delete venues;
+delete hosts;
+delete event_types;
 
-INSERT ALL
-INTO EVENT_TYPES(event_type,name,start_date,end_date,calendar_css) VALUES('FAMILY' ,'Family' ,NULL ,NULL ,'apex-cal-orange')
-INTO EVENT_TYPES(event_type,name,start_date,end_date,calendar_css) VALUES('PUBLIC' ,'Public' ,NULL ,NULL ,'apex-cal-bluesky')
-INTO EVENT_TYPES(event_type,name,start_date,end_date,calendar_css) VALUES('WORK' ,'Work' ,NULL ,NULL ,'apex-cal-lime')
-SELECT NULL FROM DUAL;
+insert all
+into event_types(event_type,name,calendar_css) values('FAMILY','Family','apex-cal-orange')
+into event_types(event_type,name,calendar_css) values('PUBLIC','Public','apex-cal-bluesky')
+into event_types(event_type,name,calendar_css) values('WORK','Work','apex-cal-lime')
+select null from dual;
 
-INSERT INTO HOSTS(host_id,name) VALUES(host_id_seq.nextval ,'Mrs Bucket' );
-INSERT INTO HOSTS(host_id,name) VALUES(host_id_seq.nextval ,'public holiday' );
-INSERT INTO HOSTS(host_id,name) VALUES(host_id_seq.nextval ,'Jeff' );
-INSERT INTO HOSTS(host_id,name) VALUES(host_id_seq.nextval ,'Oracle' );
+insert into hosts(name) values('Mrs Bucket');
+insert into hosts(name) values('public holiday');
+insert into hosts(name) values('Jeff');
+insert into hosts(name) values('Oracle');
 
-INSERT INTO VENUES(venue_id,name,map_position) VALUES(venue_id_seq.nextval ,'Dianella' ,'-31.89883777552968,115.87932586669922' );
-INSERT INTO VENUES(venue_id,name,map_position) VALUES(venue_id_seq.nextval ,'Busselton' ,'-33.6449563963605,115.34730434417725' );
-INSERT INTO VENUES(venue_id,name,map_position) VALUES(venue_id_seq.nextval ,'Oracle headquarters' ,'-31.95072845508154,115.83491653203964' );
+insert into venues(name,map_position) values('Dianella','-31.89883777552968,115.87932586669922' );
+insert into venues(name,map_position) values('Busselton','-33.6449563963605,115.34730434417725' );
+insert into venues(name,map_position) values('Oracle headquarters','-31.95072845508154,115.83491653203964' );
 
-INSERT INTO EVENTS(event_id,host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
-VALUES(event_id_seq.nextval ,(select host_id from hosts where name='Mrs Bucket') ,'FAMILY' ,'Candle-lit supper' ,'<p>some descriptive text</p> ' ,(select venue_id from venues where name='Dianella') ,TRUNC(SYSDATE)+19/24,TRUNC(SYSDATE)+23/24,'' ,NULL ,NULL );
-INSERT INTO EVENTS(event_id,host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
-VALUES(event_id_seq.nextval ,(select host_id from hosts where name='public holiday') ,'PUBLIC' ,'New Year''s Day' ,'' ,NULL ,TO_DATE('2016-01-01 00:00:00','YYYY-MM-DD HH24:MI:SS') ,TO_DATE('2016-01-01 23:59:00','YYYY-MM-DD HH24:MI:SS') ,'ANNUALLY' ,1 ,NULL );
-INSERT INTO EVENTS(event_id,host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
-VALUES(event_id_seq.nextval ,(select host_id from hosts where name='Jeff') ,'FAMILY' ,'Holiday' ,'' ,(select venue_id from venues where name='Busselton') ,TRUNC(SYSDATE,'MM')+22+3/24,TRUNC(SYSDATE,'MM')+24+23/24 ,'' ,NULL ,NULL );
-INSERT INTO EVENTS(event_id,host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
-VALUES(event_id_seq.nextval ,(select host_id from hosts where name='Oracle') ,'WORK' ,'All hands meeting' ,'' ,(select venue_id from venues where name='Oracle headquarters') ,TO_DATE('2016-02-02 10:00:00','YYYY-MM-DD HH24:MI:SS') ,TO_DATE('2016-02-02 11:00:00','YYYY-MM-DD HH24:MI:SS') ,'WEEKLY' ,2 ,NULL );
+insert into events(host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
+values((select host_id from hosts where name='Mrs Bucket') ,'FAMILY' ,'Candle-lit supper' ,'<p>some descriptive text</p> ' ,(select venue_id from venues where name='Dianella') ,trunc(sysdate)+19/24,trunc(sysdate)+23/24,'' ,null ,null );
+insert into events(host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
+values((select host_id from hosts where name='public holiday') ,'PUBLIC' ,'New Year''s Day' ,'' ,null ,trunc(sysdate,'Y'),trunc(sysdate,'Y')+0.99999,'ANNUALLY' ,1 ,null );
+insert into events(host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
+values((select host_id from hosts where name='Jeff') ,'FAMILY' ,'Holiday' ,'' ,(select venue_id from venues where name='Busselton') ,trunc(sysdate,'MM')+22+3/24,trunc(sysdate,'MM')+24+23/24 ,'' ,null ,null );
+insert into events(host_id,event_type,title,description,venue_id,start_dt,end_dt,repeat,repeat_interval,repeat_until)
+values((select host_id from hosts where name='Oracle') ,'WORK' ,'All hands meeting' ,'' ,(select venue_id from venues where name='Oracle headquarters') ,trunc(sysdate-7)+10/24,trunc(sysdate-7)+11/24,'WEEKLY' ,2 ,null );
 
-COMMIT;
+commit;
 
-END reset_sample_data;
+end reset_sample_data;

@@ -1,13 +1,12 @@
-BEGIN DEPLOY.create_table(table_name => 'ERROR_MESSAGES', table_ddl => q'[
-CREATE TABLE #NAME#
-  (err_code    VARCHAR2(30 CHAR)  NOT NULL
-  ,err_message VARCHAR2(500 CHAR) NOT NULL
-  )
-]', add_audit_cols => FALSE);
-END;
+begin deploy.create_table(table_name => 'error_messages', table_ddl => q'[
+create table #NAME#
+  (err_code    varchar2(30 char)  not null
+  ,err_message varchar2(500 char) not null
+  )]', add_audit_cols => false);
+end;
 /
 
-BEGIN DEPLOY.add_constraint(constraint_name => 'ERROR_MESSAGES_PK', constraint_ddl => q'[ALTER TABLE error_messages ADD CONSTRAINT #NAME# PRIMARY KEY ( err_code )]'); END;
+begin deploy.add_constraint(constraint_name => 'error_messages_pk', constraint_ddl => q'[alter table error_messages add constraint #NAME# primary key ( err_code )]'); end;
 /
-BEGIN DEPLOY.add_constraint(constraint_name => 'ERR_CODE_UPPER_CK', constraint_ddl => q'[ALTER TABLE error_messages ADD CONSTRAINT #NAME# CHECK ( err_code = UPPER(err_code) )]'); END;
+begin deploy.add_constraint(constraint_name => 'err_code_upper_ck', constraint_ddl => q'[alter table error_messages add constraint #NAME# check ( err_code = upper(err_code) )]'); end;
 /

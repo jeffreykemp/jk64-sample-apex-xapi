@@ -11,6 +11,7 @@ create table #NAME#
   ,repeat          varchar2 (100 char) /* DAILY, WEEKLY, MONTHLY, ANNUALLY */
   ,repeat_interval number default on null 1
   ,repeat_until    date
+  ,deleted_y       varchar2(1)
   )]');
 end;
 /
@@ -20,6 +21,8 @@ begin deploy.add_constraint(constraint_name => 'events_pk', constraint_ddl => q'
 begin deploy.add_constraint(constraint_name => 'event_name_uk', constraint_ddl => q'[alter table events add constraint #NAME# unique ( title )]'); end;
 /
 begin deploy.add_constraint(constraint_name => 'event_date_range_ck', constraint_ddl => q'[alter table events add constraint #NAME# check ( start_dt <= end_dt )]'); end;
+/
+begin deploy.add_constraint(constraint_name => 'event_deleted_ck', constraint_ddl => q'[alter table events add constraint #NAME# check ( deleted_y = 'Y' )]'); end;
 /
 
 begin deploy.add_constraint(constraint_name => 'event_type_fk', constraint_ddl => q'[alter table events add constraint #NAME# foreign key ( event_type ) references event_types ( event_type )]'); end;
