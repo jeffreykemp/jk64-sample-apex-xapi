@@ -25,3 +25,4 @@ procedure enable_journal_trigger (trigger_name in varchar2, client_id in varchar
 function context_installed return boolean;
 
 end security;
+/

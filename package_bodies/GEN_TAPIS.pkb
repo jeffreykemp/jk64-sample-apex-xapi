@@ -13,7 +13,6 @@ end_token              constant varchar2(30) := '<%END>';
 if_token               constant varchar2(30) := '<%IF ';
 else_token             constant varchar2(30) := '<%ELSE>';
 endif_token            constant varchar2(30) := '<%END IF>';
-include_token          constant varchar2(30) := '<%INCLUDE ';
 
 -- option marker tokens
 including_token        constant varchar2(30) := 'INCLUDING';
@@ -45,7 +44,6 @@ maxlen_apex            constant integer := 4000;
 
 --oddgen parameters
 oddgen_gen_tapi        constant varchar2(100) := 'Generate Table API?';
-oddgen_gen_apexapi     constant varchar2(100) := 'Generate APEX API?';
 oddgen_execute         constant varchar2(100) := 'Execute?';
 oddgen_jnl_table       constant varchar2(100) := 'Create/Alter Journal Table?';
 oddgen_jnl_trigger     constant varchar2(100) := 'Create Journal Trigger?';
@@ -141,7 +139,7 @@ function suffix_identifier
   ,suffix   in varchar2
   ) return varchar2 is
 begin
-  return substr(upper(original), 1, 30 - length(suffix)) || suffix;
+  return substr(lower(original), 1, 30 - length(suffix)) || suffix;
 end suffix_identifier;
 
 function journal_table_name (table_name in varchar2) return varchar2 is
@@ -161,18 +159,6 @@ begin
   return suffix_identifier(original => table_name
                           ,suffix   => templates.tapi_suffix);
 end tapi_package_name;
-
-function apexapi_package_name (table_name in varchar2) return varchar2 is
-begin
-  return suffix_identifier(original => table_name
-                          ,suffix   => templates.apexapi_suffix);
-end apexapi_package_name;
-
-function template_package_name (table_name in varchar2) return varchar2 is
-begin
-  return suffix_identifier(original => table_name
-                          ,suffix   => templates.template_suffix);
-end template_package_name;
 
 function view_name (table_name in varchar2) return varchar2 is
 begin
@@ -265,8 +251,8 @@ begin
     when column_name = 'ROWID'
     then 'ROWID'
     when nvl(data_type,'?') in ('?', 'CHAR', 'NCHAR', 'VARCHAR2', 'VARCHAR2', 'NVARCHAR', 'NVARCHAR2')
-     and column_name like '%/_' || util.col_suffix_ind escape '/'
-    then 'IND'
+     and column_name like '%/_' || util.col_suffix_y escape '/'
+    then 'Y'
     when nvl(data_type,'?') in ('?', 'CHAR', 'NCHAR', 'VARCHAR2', 'VARCHAR2', 'NVARCHAR', 'NVARCHAR2')
      and column_name like '%/_' || util.col_suffix_yn escape '/'
     then 'YN'
@@ -304,26 +290,26 @@ function cols
   ,pseudocolumns   in varchar2
   ,virtual_columns in boolean
   ) return varchar2 is
-  scope           logger_logs.scope%type := scope_prefix || 'cols';
-  params          logger.tab_param;
-  qry             varchar2(32767);
-  colname         str_array;
-  datatype        str_array;
-  maxlen          num_array;
-  datadef         str_array;
-  basetype        str_array;
-  tmp             varchar2(4000);
-  buf             varchar2(32767);
-  col_uc          varchar2(40);
-  col_lc          varchar2(40);
-  tablecolumn     varchar2(100);
-  surkey_sequence varchar2(30);
-  surkey_column   varchar2(30);
-  pseudocol       t_str_array;
-  idx             number;
-  maxcolnamelen   number;
+  scope              logger_logs.scope%type := scope_prefix || 'cols';
+  params             logger.tab_param;
+  qry                varchar2(32767);
+  colname            str_array;
+  datatype           str_array;
+  maxlen             num_array;
+  datadef            str_array;
+  basetype           str_array;
+  tmp                varchar2(4000);
+  buf                varchar2(32767);
+  col_uc             varchar2(40);
+  col_lc             varchar2(40);
+  tablecolumn        varchar2(100);
+  surkey_sequence    varchar2(30);
+  surkey_column      varchar2(30);
+  pseudocol          t_str_array;
+  idx                number;
+  maxcolnamelen      number;
   lob_datatypes_list varchar2(4000);
-  datatype_full   varchar2(1000);
+  datatype_full      varchar2(1000);
 begin
   logger.append_param(params, 'table_name', table_name);
   logger.append_param(params, 'template_arr.COUNT', template_arr.count);
@@ -334,29 +320,29 @@ begin
   logger.log('START', scope, null, params);
 
   qry := q'[
-SELECT column_name
+select column_name
       ,data_type
       ,char_length
       ,data_default
       ,data_type
-       || CASE
-          WHEN data_type IN ('CHAR','NCHAR','VARCHAR','VARCHAR2','NVARCHAR2')
-          THEN '(' || char_length || ' '
-            || DECODE(char_used,'B','BYTE','C','CHAR')
+       || case
+          when data_type in ('CHAR','NCHAR','VARCHAR','VARCHAR2','NVARCHAR2')
+          then '(' || char_length || ' '
+            || decode(char_used,'B','BYTE','C','CHAR')
             || ')'
-          WHEN data_type IN ('NUMBER')
-           AND data_precision IS NOT NULL
-          THEN '(' || data_precision
-            || CASE WHEN data_scale IS NOT NULL THEN ',' || data_scale END
+          when data_type in ('NUMBER')
+           and data_precision is not null
+          then '(' || data_precision
+            || case when data_scale is not null then ',' || data_scale end
             || ')'
-          END
-       AS basetype
-FROM   user_tab_cols
-WHERE  table_name = :table_name
-AND    hidden_column = 'NO'
-]'  || case when cols_where is not null then ' AND (' || cols_where || ') ' end
-    || case when not virtual_columns then q'[ AND virtual_column='NO' ]' end
-    || q'[ORDER BY CASE WHEN UTIL.csv_instr(:generated_columns, column_name) > 0 THEN 2 ELSE 1 END, column_id]';
+          end
+       as basetype
+from   user_tab_cols
+where  table_name = :table_name
+and    hidden_column = 'NO'
+]'  || case when cols_where is not null then ' and (' || cols_where || ') ' end
+    || case when not virtual_columns then q'[ and virtual_column='NO' ]' end
+    || q'[order by case when util.csv_instr(:generated_columns, column_name) > 0 then 2 else 1 end, column_id]';
 
   execute immediate qry
     bulk collect into colname, datatype, maxlen, datadef, basetype
@@ -711,11 +697,10 @@ procedure evaluate_columns
         exclude := util.csv_replace(exclude, id_token);
         util.append_str(colswhere, 'column_name NOT LIKE ''%\_ID'' escape ''\''', ' AND ');
       end if;
-      if util.csv_instr(exclude, ind_token) > 0 then
-        exclude := util.csv_replace(exclude, ind_token);
-        util.append_str(colswhere, 'column_name NOT LIKE ''%\_IND'' escape ''\''', ' AND ');
+      if util.csv_instr(exclude, y_token) > 0 then
+        exclude := util.csv_replace(exclude, y_token);
+        util.append_str(colswhere, 'column_name NOT LIKE ''%\_Y'' escape ''\''', ' AND ');
       end if;
-$if dbms_db_version.version >= 12 $then
       if util.csv_instr(exclude, default_on_null_token) > 0 then
         exclude := util.csv_replace(exclude, default_on_null_token);
         util.append_str(colswhere, q'[default_on_null='NO']', ' AND ');
@@ -724,7 +709,6 @@ $if dbms_db_version.version >= 12 $then
         exclude := util.csv_replace(exclude, identity_token);
         util.append_str(colswhere, q'[identity_column='NO']', ' AND ');
       end if;
-$end
       exclude := expand_column_lists(exclude);
       if exclude is not null then
         -- if any table-specific columns are in the list, remove them if they're
@@ -789,7 +773,6 @@ $end
           util.append_str(colswhere, '1=2'/*no surrogate key*/, ' AND ');
         end if;
       end if;
-$if dbms_db_version.version >= 12 $then
       if util.csv_instr(only, default_on_null_token) > 0 then
         only := util.csv_replace(only, default_on_null_token);
         util.append_str(colswhere, q'[default_on_null='YES']', ' AND ');
@@ -798,7 +781,6 @@ $if dbms_db_version.version >= 12 $then
         only := util.csv_replace(only, identity_token);
         util.append_str(colswhere, q'[identity_column='YES']', ' AND ');
       end if;
-$end
       only := expand_column_lists(only);
       if only is not null then
         -- if any table-specific columns are in the list, remove them if they're
@@ -1000,76 +982,6 @@ exception
     raise;
 end evaluate_ifs;
 
-procedure evaluate_includes
-  (table_name   in varchar2
-  ,placeholders in key_value_array
-  ,buf          in out clob) is
-  scope     logger_logs.scope%type := scope_prefix || 'evaluate_includes';
-  params    logger.tab_param;
-  iteration integer;
-  chunks    str_array;
-  idx       binary_integer;
-  nxt       binary_integer;
-
-  procedure evaluate_include (chnk in out varchar2) is
-    template_name varchar2(1000);
-    resid         varchar2(32767);
-    buf           clob;
-  begin
-    util.split_str
-      (str   => chnk
-      ,delim => '>'
-      ,lhs   => template_name
-      ,rhs   => resid);
-    evaluate_all
-      (template_spec => template_name
-      ,table_name    => table_name
-      ,placeholders  => placeholders
-      ,buf           => buf
-      ,recursing     => true);
-    -- insert markers so future maintainers know where the code came from (or
-    -- where additional custom code may be added)
-    chnk := '/**{' || template_name || '}**/' || chr(10)
-         || buf
-         || '/**{/' || template_name || '}**/' || resid;
-  end evaluate_include;
-begin
-  logger.append_param(params, 'table_name', table_name);
-  logger.append_param(params, 'placeholders.COUNT', placeholders.count);
-  logger.log('START', scope, null, params);
-
-  chunks := chunkerize
-    (buf    => buf
-    ,tokens => t_str_array(include_token));
-
-  iteration := 0;
-  idx := chunks.first;
-  loop
-    iteration := iteration + 1;
-    if iteration > 100 then
-      raise_application_error(-20000, 'max iterations');
-    end if;
-    exit when idx is null;
-
-    if util.starts_with(chunks(idx), include_token) then
-      chunks(idx) := util.replace_prefix(chunks(idx), include_token);
-      evaluate_include(chunks(idx));
-    end if;
-
-    idx := chunks.next(idx);
-  end loop;
-
-  assemble_chunks
-    (chunks => chunks
-    ,buf    => buf);
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end evaluate_includes;
-
 procedure get_template
   (template_spec in varchar2
   ,buf           in out nocopy clob) is
@@ -1168,9 +1080,7 @@ begin
       ,buf           => buf);
   
     ph := placeholders;
-  
-    ph('<%APEXAPI>')   := upper(apexapi_package_name(table_name));
-    ph('<%apexapi>')   := lower(apexapi_package_name(table_name));
+
     ph('<%CONTEXT>')   := security.ctx;
     ph('<%CONTEXT_APP_USER>') := deploy.context_app_user;
     ph('<%Entities>')  := util.user_friendly_label(table_name); -- assume tables are named in the plural
@@ -1200,11 +1110,6 @@ begin
     evaluate_ifs (table_name => table_name, buf => buf);
   
     evaluate_columns (table_name => table_name, buf => buf);
-  
-    evaluate_includes
-      (table_name   => table_name
-      ,placeholders => placeholders
-      ,buf          => buf);
     
   exception
     when no_data_found then
@@ -1338,15 +1243,15 @@ begin
   if not deploy.table_exists(jnl_table) then
 
     deploy.exec_ddl(replace(replace(
-       'CREATE TABLE #JOURNAL# AS SELECT * FROM #TABLE# WHERE 1=0'
+       'create table #JOURNAL# as select * from #TABLE# where 1=0'
        ,'#JOURNAL#', jnl_table)
        ,'#TABLE#',   table_name)
       );
 
     deploy.exec_ddl(replace(replace(
-       'ALTER TABLE #TABLE# ADD #column#'
+       'alter table #TABLE# add #column#'
        ,'#TABLE#',  jnl_table)
-       ,'#column#', '(JN$ACTION VARCHAR2(1), JN$TIMESTAMP TIMESTAMP, JN$ACTION_BY VARCHAR2(100))')
+       ,'#column#', '(jn$action varchar2(1), jn$timestamp timestamp, jn$action_by varchar2(100))')
       );
 
     -- the journal table may have some not null constraints; remove them
@@ -1355,9 +1260,9 @@ begin
               where  c.table_name = upper(journal_table.jnl_table)
               and    c.nullable = 'N') loop
       deploy.exec_ddl(replace(replace(
-         'ALTER TABLE #TABLE# MODIFY #column# NULL'
+         'alter table #TABLE# modify #COLUMN# null'
          ,'#TABLE#',  jnl_table)
-         ,'#column#', r.column_name)
+         ,'#COLUMN#', r.column_name)
         );
     end loop;
 
@@ -1412,27 +1317,27 @@ begin
                                       and    j.column_name = c.column_name)
               order by column_id) loop
       deploy.exec_ddl(replace(replace(replace(
-        'ALTER TABLE #JOURNAL# MODIFY #column# #col_def#'
+        'alter table #JOURNAL# modify #COLUMN# #COL_DEF#'
        ,'#JOURNAL#', jnl_table)
-       ,'#column#',  r.column_name)
-       ,'#col_def#', r.col_def)
+       ,'#COLUMN#',  r.column_name)
+       ,'#COL_DEF#', r.col_def)
         );
     end loop;
 
     -- add jn columns if not already there
-    deploy.add_column(jnl_table, 'JN$ACTION',    'VARCHAR2(1)');
-    deploy.add_column(jnl_table, 'JN$TIMESTAMP', 'TIMESTAMP');
-    deploy.add_column(jnl_table, 'JN$ACTION_BY', 'VARCHAR2(100)');
+    deploy.add_column(jnl_table, 'jn$action',    'varchar2(1)');
+    deploy.add_column(jnl_table, 'jn$timestamp', 'timestamp');
+    deploy.add_column(jnl_table, 'jn$action_by', 'varchar2(100)');
 
   end if;
 
   if journal_indexes then
     deploy.create_index
-      (index_name   => jnl_table || '$IX1'
-      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',VERSION_ID)');
+      (index_name   => jnl_table || '$ix1'
+      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',version_id)');
     deploy.create_index
-      (index_name   => jnl_table || '$IX2'
-      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',JN$TIMESTAMP)');
+      (index_name   => jnl_table || '$ix2'
+      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',jn$timestamp)');
   end if;
 
   logger.log('END', scope, null, params);
@@ -1551,87 +1456,14 @@ exception
     raise;
 end all_tapis;
 
-procedure all_apexapis (table_name in varchar2 := null) is
-  scope  logger_logs.scope%type := scope_prefix || 'all_apexapis';
-  params logger.tab_param;
-begin
-  logger.append_param(params, 'table_name', table_name);
-  logger.log('START', scope, null, params);
-
-  for r in (
-    select t.table_name
-    from   user_tables t
-    where  (all_apexapis.table_name is null
-            and t.table_name not like '%'||templates.journal_tab_suffix)
-    or     t.table_name = upper(all_apexapis.table_name)
-    order by t.table_name
-    ) loop
-
-    gen
-      (template_name => 'APEXAPI_PACKAGE_SPEC'
-      ,table_name    => r.table_name
-      ,raise_ddl_exceptions => false);
-
-    gen
-      (template_name => 'APEXAPI_PACKAGE_BODY'
-      ,table_name    => r.table_name
-      ,raise_ddl_exceptions => false);
-
-  end loop;
-
-  if table_name is null then
-    deploy.dbms_output_errors(object_type => 'PACKAGE');
-    deploy.dbms_output_errors(object_type => 'PACKAGE BODY');
-  end if;
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end all_apexapis;
-
-procedure all_apis
-  (table_name      in varchar2
-  ,journal_indexes in boolean := false
-  ,apex_api        in boolean := true) is
-  scope  logger_logs.scope%type := scope_prefix || 'all_apis';
-  params logger.tab_param;
-begin
-  logger.append_param(params, 'table_name', table_name);
-  logger.append_param(params, 'journal_indexes', journal_indexes);
-  logger.append_param(params, 'apex_api', apex_api);
-  logger.log('START', scope, null, params);
-  
-  -- the journal table is needed by the tapi
-  journal_table
-    (table_name      => table_name
-    ,journal_indexes => false);
-  
-  all_tapis (table_name => table_name);
-
-  -- the journal trigger needs the tapi
-  journal_trigger (table_name => table_name);
-
-  if apex_api then
-    all_apexapis (table_name => table_name);
-  end if;
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end all_apis;
-
 function get_name return varchar2 is
 begin
-  return 'TAPI / APEX API';
+  return 'Table API';
 end get_name;
 
 function get_description return varchar2 is
 begin
-  return 'Table API and/or APEX API generator';
+  return 'Table API Generator';
 end get_description;
 
 function get_object_types return t_string is
@@ -1658,7 +1490,6 @@ function get_params
   l_params t_param;
 begin
   l_params(oddgen_gen_tapi) := 'Yes';
-  l_params(oddgen_gen_apexapi) := 'Yes';
   l_params(oddgen_execute) := 'No';
   l_params(oddgen_jnl_table) := 'No';
   l_params(oddgen_jnl_trigger) := 'No';
@@ -1674,7 +1505,6 @@ begin
                      ,oddgen_jnl_trigger
                      ,oddgen_jnl_indexes
                      ,oddgen_gen_tapi
-                     ,oddgen_gen_apexapi
                      );
 end get_ordered_params;
 
@@ -1686,7 +1516,6 @@ function get_lov
   l_lov t_lov;
 begin
   l_lov(oddgen_gen_tapi) := new t_string('Yes', 'No');
-  l_lov(oddgen_gen_apexapi) := new t_string('Yes', 'No');
   l_lov(oddgen_execute) := new t_string('Yes', 'No');
   if in_params(oddgen_execute) = 'No' then
     l_lov(oddgen_jnl_table) := new t_string('No');
@@ -1713,7 +1542,7 @@ function generate
   params logger.tab_param;
   buf clob := '/*Generated ' || to_char(sysdate,'DD/MM/YYYY HH:MIpm') || '*/' || chr(10);
   ddl clob;
-  post_script constant varchar2(1000) := '/' || chr(10) || 'SHOW ERRORS' || chr(10) || chr(10);
+  post_script constant varchar2(1000) := '/' || chr(10) || 'show errors' || chr(10) || chr(10);
   
   procedure process_template (template_name in varchar2) is
   begin
@@ -1759,14 +1588,6 @@ begin
   if in_params(oddgen_jnl_trigger) = 'Yes' then
 
     journal_trigger (table_name => in_object_name);
-  
-  end if;
-  
-  if in_params(oddgen_gen_apexapi) = 'Yes' then
-  
-    process_template('APEXAPI_PACKAGE_SPEC');
-    
-    process_template('APEXAPI_PACKAGE_BODY');
   
   end if;
 
