@@ -288,7 +288,6 @@ function cols
   ,sep             in varchar2
   ,cols_where      in varchar2
   ,pseudocolumns   in varchar2
-  ,virtual_columns in boolean
   ) return varchar2 is
   scope              logger_logs.scope%type := scope_prefix || 'cols';
   params             logger.tab_param;
@@ -316,7 +315,6 @@ begin
   logger.append_param(params, 'sep', sep);
   logger.append_param(params, 'cols_where', cols_where);
   logger.append_param(params, 'pseudocolumns', pseudocolumns);
-  logger.append_param(params, 'virtual_columns', virtual_columns);
   logger.log('START', scope, null, params);
 
   qry := q'[
@@ -341,7 +339,6 @@ from   user_tab_cols
 where  table_name = :table_name
 and    hidden_column = 'NO'
 ]'  || case when cols_where is not null then ' and (' || cols_where || ') ' end
-    || case when not virtual_columns then q'[ and virtual_column='NO' ]' end
     || q'[order by case when util.csv_instr(:generated_columns, column_name) > 0 then 2 else 1 end, column_id]';
 
   execute immediate qry
@@ -654,7 +651,6 @@ procedure evaluate_columns
     only          varchar2(4000);
     colswhere     varchar2(4000);
     pseudocolumns varchar2(4000);
-    virtuals      boolean := false;
     buf           varchar2(32767);
   begin
     if length(str) <= 4000 and g_cols_cache.exists(str) then
@@ -677,6 +673,10 @@ procedure evaluate_columns
         ,only    => only);
 
       -- EXCLUDING option
+      if util.csv_instr(exclude, virtual_token) > 0 then
+        include := util.csv_replace(include, virtual_token);
+        util.append_str(colswhere, q'[virtual_column='NO']', ' AND ');
+      end if;
       if util.csv_instr(exclude, nullable_token) > 0 then
         exclude := util.csv_replace(exclude, nullable_token);
         util.append_str(colswhere, q'[nullable='N']', ' AND ');
@@ -718,16 +718,11 @@ procedure evaluate_columns
       end if;
 
       -- INCLUDING option
-      if util.csv_instr(include, virtual_token) > 0 then
-        virtuals := true;
-        include := util.csv_replace(include, virtual_token);
-      end if;
       -- if the table uses a surrogate key, don't include ROWID
       if util.csv_instr(include, rowid_token) > 0
       and surrogate_key_column (table_name => table_name) is not null then
         include := util.csv_replace(include, rowid_token);
       end if;
-
       if include is not null then
         -- if any table-specific columns are in the list, remove them if they're
         -- not for this table
@@ -762,7 +757,6 @@ procedure evaluate_columns
       end if;
       if util.csv_instr(only, virtual_token) > 0 then
         only := util.csv_replace(only, virtual_token);
-        virtuals := true;
         util.append_str(colswhere, q'[virtual_column='YES']', ' AND ');
       end if;
       if util.csv_instr(only, surrogate_key) > 0
@@ -811,8 +805,7 @@ procedure evaluate_columns
                  ,template_arr    => tmp
                  ,sep             => sep
                  ,cols_where      => colswhere
-                 ,pseudocolumns   => pseudocolumns
-                 ,virtual_columns => virtuals);
+                 ,pseudocolumns   => pseudocolumns);
 
       if length(str) <= 4000 then
         g_cols_cache(str) := buf;

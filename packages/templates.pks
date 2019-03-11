@@ -67,7 +67,7 @@ create or replace trigger <%TRIGGER>
     r <%JOURNAL>%rowtype;
   begin
     if inserting or updating then
-      <%COLUMNS INCLUDING VIRTUAL>
+      <%COLUMNS>
       r.#col#... := :new.#col#;~
       <%END>
       if inserting then
@@ -76,7 +76,7 @@ create or replace trigger <%TRIGGER>
         r.jn$action := 'U';
       end if;
     elsif deleting then
-      <%COLUMNS INCLUDING VIRTUAL>
+      <%COLUMNS>
       r.#col#... := :old.#col#;~
       <%END>
       r.jn$action := 'D';
@@ -134,8 +134,7 @@ type rvtype is record
    #col#... <%TABLE>.#col#%type{CLOB}~
    #col#... <%TABLE>.#col#%type{XMLTYPE}~
    #col#... varchar2(20){ROWID}~
-  ,<%END>
-  );
+  ,<%END>);
 type rvarraytype is table of rvtype index by binary_integer;
 
 procedure append_params
@@ -372,10 +371,10 @@ begin
   append_params(params, rv);
   logger.log('START', scope, null, params);
 
-  <%COLUMNS EXCLUDING NULLABLE,GENERATED,SURROGATE_KEY,IDENTITY,LOBS,DEFAULT_ON_NULL>
+  <%COLUMNS EXCLUDING NULLABLE,GENERATED,SURROGATE_KEY,IDENTITY,LOBS,DEFAULT_ON_NULL,VIRTUAL>
   util.val_not_null (val => rv.#col#, column_name => C_#COL28#);~
   <%END>
-  <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,LOBS>
+  <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,LOBS,VIRTUAL>
   util.val_y (val => rv.#col#, column_name => C_#COL28#);{Y}~
   util.val_yn (val => rv.#col#, column_name => C_#COL28#);{YN}~
   util.val_code (val => rv.#col#, column_name => C_#COL28#);{CODE}~
@@ -454,10 +453,10 @@ begin
   lr := rv;
 
   insert into <%TABLE>
-        (<%COLUMNS EXCLUDING GENERATED,IDENTITY>
+        (<%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
         #col#~
         ,<%END>)
-  values(<%COLUMNS EXCLUDING GENERATED,IDENTITY>
+  values(<%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
          lr.#col#~
          util.num_val(lr.#col#){NUMBER}~
          util.date_val(lr.#col#){DATE}~
@@ -466,10 +465,10 @@ begin
          util.timestamp_tz_val(lr.#col#){TIMESTAMP_TZ}~
         ,<%END>)
   returning
-         <%COLUMNS INCLUDING VIRTUAL,ROWID>
+         <%COLUMNS INCLUDING ROWID>
          #col#~
         ,<%END>
-  into   <%COLUMNS INCLUDING VIRTUAL,ROWID>
+  into   <%COLUMNS INCLUDING ROWID>
          r.#col#~
         ,<%END>;
 
@@ -504,10 +503,10 @@ begin
 
   forall i in indices of arr
     insert into <%TABLE>
-           (<%COLUMNS EXCLUDING GENERATED,IDENTITY>
+           (<%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
             #col#~
            ,<%END>)
-    values (<%COLUMNS EXCLUDING GENERATED,IDENTITY>
+    values (<%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
             lr(i).#col#~
             util.num_val(lr(i).#col#){NUMBER}~
             util.date_val(lr(i).#col#){DATE}~
@@ -556,7 +555,7 @@ begin
   lr := rv;
 
   update <%TABLE> x
-  set    <%COLUMNS EXCLUDING GENERATED,IDENTITY>
+  set    <%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
          x.#col#... = lr.#col#~
          x.#col#... = util.num_val(lr.#col#){NUMBER}~
          x.#col#... = util.date_val(lr.#col#){DATE}~
@@ -568,10 +567,10 @@ begin
          x.#col#... = lr.#col#~
   and    <%END>
   returning
-         <%COLUMNS INCLUDING VIRTUAL,ROWID>
+         <%COLUMNS INCLUDING ROWID>
          #col#~
         ,<%END>
-  into   <%COLUMNS INCLUDING VIRTUAL,ROWID>
+  into   <%COLUMNS INCLUDING ROWID>
          r.#col#~
         ,<%END>;
 
@@ -614,7 +613,7 @@ begin
 
   forall i in indices of arr
     update <%TABLE> x
-    set    <%COLUMNS EXCLUDING GENERATED,IDENTITY>
+    set    <%COLUMNS EXCLUDING GENERATED,IDENTITY,VIRTUAL>
            x.#col#... = lr(i).#col#~
            x.#col#... = util.num_val(lr(i).#col#){NUMBER}~
            x.#col#... = util.date_val(lr(i).#col#){DATE}~
@@ -768,10 +767,10 @@ begin
          x.#col#... = lr.#col#~
   and    <%END>
   returning
-         <%COLUMNS INCLUDING VIRTUAL,ROWID>
+         <%COLUMNS INCLUDING ROWID>
          #col#~
         ,<%END>
-  into   <%COLUMNS INCLUDING VIRTUAL,ROWID>
+  into   <%COLUMNS INCLUDING ROWID>
          r.#col#~
         ,<%END>;
 
@@ -905,10 +904,10 @@ begin
   if <%COLUMNS ONLY IDENTITY INCLUDING ROWID>#col# is not null~p_#col# is not null{ROWID}~
   or <%END> then
   
-    select <%COLUMNS INCLUDING VIRTUAL,ROWID>
+    select <%COLUMNS INCLUDING ROWID>
            x.#col#~
           ,<%END>
-    into   <%COLUMNS INCLUDING VIRTUAL,ROWID>
+    into   <%COLUMNS INCLUDING ROWID>
            r.#col#~
           ,<%END>
     from   <%TABLE> x
@@ -920,7 +919,7 @@ begin
   else
 
     -- set up default record
-    <%COLUMNS ONLY DEFAULT_VALUE EXCLUDING GENERATED,IDENTITY>
+    <%COLUMNS ONLY DEFAULT_VALUE EXCLUDING GENERATED,IDENTITY,VIRTUAL>
     r.#col#... := #data_default#;~
     null;{NONE}~
     <%END>
@@ -1016,7 +1015,7 @@ select <%COLUMNS EXCLUDING GENERATED>
        when start_date >= trunc(sysdate) then 'FUTURE'
        end as inactive_code
        <%END>
-      ,<%COLUMNS EXCLUDING PK,GENERATED,SORT_ORDER,START_DATE,END_DATE,ID,Y,CODE>
+      ,<%COLUMNS EXCLUDING PK,GENERATED,SORT_ORDER,START_DATE,END_DATE,ID,Y,CODE,VIRTUAL>
        #col#~
        || ' ' || <%END>
        <%COLUMNS ONLY VISIBLE_Y,START_DATE,ENABLED_Y,DELETED_Y>
@@ -1040,7 +1039,7 @@ select <%COLUMNS EXCLUDING GENERATED>
            ,<%END><%COLUMNS ONLY ENABLED_Y>
             enabled_y nulls last
            ,<%END>sort_order
-           ,<%COLUMNS EXCLUDING PK,GENERATED,SORT_ORDER,START_DATE,END_DATE,ID,Y,CODE>
+           ,<%COLUMNS EXCLUDING PK,GENERATED,SORT_ORDER,START_DATE,END_DATE,ID,Y,CODE,VIRTUAL>
             #col#~
            ,<%END>) as lov_sort_order
 from <%TABLE>;
@@ -1055,7 +1054,7 @@ from <%TABLE>;
 
 -- Put this in a Form Validation Process
 <%tapi>.val (rv => <%tapi>.rvtype
-  (<%COLUMNS EXCLUDING AUDIT,LOBS INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
    rv.#col#... => :P1_#COL28#;~
   ,<%END>));
 
@@ -1065,7 +1064,7 @@ procedure process is
   r      <%tapi>.rowtype;
 begin
   rv := <%tapi>.rvtype
-    (<%COLUMNS EXCLUDING AUDIT,LOBS INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
      rv.#col#... => :P1_#COL28#;~
     ,<%END>);
   case
@@ -1089,7 +1088,7 @@ begin
     null;
   end case;
   if :REQUEST != 'DELETE' then
-    <%COLUMNS INCLUDING VIRTUAL,ROWID EXCLUDING LOBS>
+    <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
     :P1_#COL28#... := r.#col#;~
     <%END>
   end if;
