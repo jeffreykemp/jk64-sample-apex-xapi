@@ -1,5 +1,5 @@
 create or replace force view event_types_vw as
-select et.event_type
+select et.event_type_code
       ,et.name
       ,et.name || case when et.deleted_y = 'Y' then ' (DELETED)' end as description
 	    ,et.deleted_y

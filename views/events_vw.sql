@@ -1,6 +1,6 @@
 create or replace force view events_vw as
 select e.event_id
-      ,e.event_type
+      ,e.event_type_code
       ,et.name || case when et.deleted_y = 'Y' then ' (DELETED)' end event_type_name
       ,e.host_id
       ,h.name || case when h.deleted_y = 'Y' then ' (DELETED)' end as host_name
@@ -52,7 +52,7 @@ from   (select e.*
         where  (e.repeat is null and r = 0)
         or     e.repeat is not null
        ) e
-join   event_types et on et.event_type = e.event_type
+join   event_types et on et.event_type_code = e.event_type_code
 join   hosts h on h.host_id = e.host_id
 left join venues vn on vn.venue_id = e.venue_id
 where  (e.repeat_until is null or e.this_start_dt <= e.repeat_until or e.repeat_no = 0);

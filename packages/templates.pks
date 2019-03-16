@@ -1015,16 +1015,26 @@ r := <%tapi>.rowtype
    #col#... => null --#col#~
   ,<%END>);
 
--- e.g. put this in a Form Validation Process
-<%tapi>.val (rv => <%tapi>.rvtype
+-- e.g. put this in a Form Page Load Process
+declare
+  r <%tapi>.rowtype;
+begin
+  r := <%tapi>.get(<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col#... => :P1_#COL28#~p_#col#... => :P1_#COL28#{ROWID}~, <%END>);
+  <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
+  :P1_#COL28#... := r.#col#;~
+  <%END>
+end;
+
+-- e.g. put this in a Form Validation Process returning Error Text
+return <%tapi>.val (rv => <%tapi>.rvtype
   (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
    #col#... => :P1_#COL28#~
   ,<%END>));
 
 -- e.g. put this in a Form DML Process
-procedure process is
-  rv     <%tapi>.rvtype;
-  r      <%tapi>.rowtype;
+declare
+  rv <%tapi>.rvtype;
+  r  <%tapi>.rowtype;
 begin
   rv := <%tapi>.rvtype
     (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
@@ -1044,7 +1054,7 @@ begin
     util.success('<%Entity> deleted.');
 <%IF SOFT_DELETE>
   when :REQUEST = 'UNDELETE' then
-    <%tapi>.undel (rv => rv);
+    r := <%tapi>.undel (rv => rv);
     util.success('<%Entity> undeleted.');
 <%END IF>
   else
