@@ -4,7 +4,8 @@ create or replace package body deploy as
  2-DEC-2014 Jeffrey Kemp
 *******************************************************************************/
 
-JOURNAL_TABLE_SUFFIX constant varchar2(30) := '$JN';
+journal_table_suffix constant varchar2(30) := '$JN';
+context_app_user     constant varchar2(100) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
 
 procedure msg(v in varchar2) is
 begin
@@ -136,7 +137,9 @@ begin
   end if;
 exception
   when others then
-    if sqlcode != -01430 /*column being added already exists in table*/ then
+    if sqlcode not in (-01430 /*column being added already exists in table*/
+                      ,-01442 /*column to be modified to NOT NULL is already NOT NULL*/
+                      ) then
       raise;
     end if;
 end add_column;
@@ -222,17 +225,21 @@ procedure create_table
 begin
   assert(table_name is not null, 'create_table: table_name cannot be null');
   assert(table_ddl is not null, 'create_table: table_ddl cannot be null');
-  assert(instr(table_ddl,'#NAME#') > 0, 'create_table: table_ddl should use #NAME# for table name');
-  exec_ddl(replace(table_ddl,'#NAME#',dbms_assert.simple_sql_name(table_name)));
-  msg('Table created: ' || table_name);
+  assert(instr(lower(table_ddl),'#name#') > 0, 'create_table: table_ddl should use #NAME# or #name# for table name');
+  begin
+    exec_ddl(replace(replace(table_ddl
+      ,'#NAME#',dbms_assert.simple_sql_name(table_name))
+      ,'#name#',lower(dbms_assert.simple_sql_name(table_name))));
+    msg('Table created: ' || table_name);
+  exception
+    when others then
+      if sqlcode not in (-942,-955) then
+        raise;
+      end if;
+  end;
   if add_audit_cols then
     deploy.add_audit_cols(table_name);
   end if;
-exception
-  when others then
-    if sqlcode not in (-942,-955) then
-      raise;
-    end if;
 end create_table;
 
 procedure create_mview
@@ -261,9 +268,10 @@ procedure create_sequence
   ) is
 begin
   assert(sequence_name is not null, 'create_sequence: sequence_name cannot be null');
-  assert(instr(sequence_ddl,'#NAME#') > 0, 'add_sequence: sequence_ddl must use "#NAME#" for sequence name');
-  exec_ddl(replace(nvl(sequence_ddl,'create sequence #NAME#')
-                  ,'#NAME#',dbms_assert.simple_sql_name(sequence_name)));
+  assert(instr(lower(sequence_ddl),'#name#') > 0, 'add_sequence: sequence_ddl must use #NAME# or #name# for sequence name');
+  exec_ddl(replace(replace(nvl(sequence_ddl,'create sequence #NAME#')
+          ,'#NAME#',dbms_assert.simple_sql_name(sequence_name))
+          ,'#name#',dbms_assert.simple_sql_name(lower(sequence_name))));
   msg('Sequence created: ' || sequence_name);
 exception
   when others then
@@ -278,8 +286,10 @@ procedure add_constraint
 begin
   assert(constraint_name is not null, 'add_constraint: constraint_name cannot be null');
   assert(constraint_ddl is not null, 'add_constraint: constraint_ddl cannot be null');
-  assert(instr(constraint_ddl,'#NAME#') > 0, 'add_constraint: constraint_ddl must use "#NAME#" for constraint name');
-  exec_ddl(replace(constraint_ddl,'#NAME#',dbms_assert.simple_sql_name(constraint_name)));
+  assert(instr(lower(constraint_ddl),'#name#') > 0, 'add_constraint: constraint_ddl must use #NAME# or #name# for constraint name');
+  exec_ddl(replace(replace(constraint_ddl
+    ,'#NAME#',dbms_assert.simple_sql_name(constraint_name))
+    ,'#name#',lower(dbms_assert.simple_sql_name(constraint_name))));
   msg('Constraint created: ' || constraint_name);
 exception
   when others then
@@ -545,14 +555,13 @@ begin
 end apex_major_version;
 
 procedure add_audit_cols (table_name in varchar2) is
-  default_user varchar2(1000) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
 begin
   assert(table_name is not null, 'add_audit_cols: table_name cannot be null');
   add_column
     (table_name        => table_name
     ,column_name       => 'created_by'
-    ,column_definition => 'varchar2(100 char) default on null ' || default_user
-    ,not_null_value    => default_user);
+    ,column_definition => 'varchar2(100 char) default on null ' || context_app_user
+    ,not_null_value    => context_app_user);
   add_column
     (table_name        => table_name
     ,column_name       => 'created_dt'
@@ -561,8 +570,8 @@ begin
   add_column
     (table_name        => table_name
     ,column_name       => 'last_updated_by'
-    ,column_definition => 'varchar2(100 char) default on null ' || default_user
-    ,not_null_value    => default_user);
+    ,column_definition => 'varchar2(100 char) default on null ' || context_app_user
+    ,not_null_value    => context_app_user);
   add_column
     (table_name        => table_name
     ,column_name       => 'last_updated_dt'
@@ -574,9 +583,9 @@ begin
     ,column_definition => 'integer default on null 1'
     ,not_null_value    => '1');
   -- for audit columns that already existed, make sure their defaults are set
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify created_by default on null ' || default_user);
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify created_by default on null ' || context_app_user);
   exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify created_dt default on null sysdate');
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify last_updated_by default on null ' || default_user);
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify last_updated_by default on null ' || context_app_user);
   exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify last_updated_dt default on null sysdate');
   exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify version_id default on null 1');
 end add_audit_cols;

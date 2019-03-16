@@ -24,17 +24,20 @@ audit_token            constant varchar2(30) := 'AUDIT';
 default_value_token    constant varchar2(30) := 'DEFAULT_VALUE';
 generated_token        constant varchar2(30) := 'GENERATED';
 nullable_token         constant varchar2(30) := 'NULLABLE';
-lob_token              constant varchar2(30) := 'LOB';
-lobs_token             constant varchar2(30) := 'LOBS';
-code_token             constant varchar2(30) := 'CODE';
-y_token                constant varchar2(30) := 'Y';
-id_token               constant varchar2(30) := 'ID';
+lob_token              constant varchar2(30) := 'LOB'; -- column format spec
+lobs_token             constant varchar2(30) := 'LOBS'; -- columns spec
+code_token             constant varchar2(30) := 'CODE'; -- a char column like "STATUS_CODE", system interpreted values
+y_token                constant varchar2(30) := 'Y'; -- a column like "DELETED_Y" is either null or 'Y'
+id_token               constant varchar2(30) := 'ID'; -- a numeric column like "EMP_ID"
 pk_token               constant varchar2(30) := 'PK';
 rowid_token            constant varchar2(30) := 'ROWID';
 virtual_token          constant varchar2(30) := 'VIRTUAL';
 default_on_null_token  constant varchar2(30) := 'DEFAULT_ON_NULL';
+surrogate_key_token    constant varchar2(30) := 'SURROGATE_KEY';
 identity_token         constant varchar2(30) := 'IDENTITY';
 soft_delete_token      constant varchar2(30) := 'SOFT_DELETE';
+
+context_app_user       constant varchar2(100) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
 
 -- infinite loop protection
 maxiterations          constant integer := 10000;
@@ -47,21 +50,12 @@ oddgen_gen_tapi        constant varchar2(100) := 'Generate Table API?';
 oddgen_execute         constant varchar2(100) := 'Execute?';
 oddgen_jnl_table       constant varchar2(100) := 'Create/Alter Journal Table?';
 oddgen_jnl_trigger     constant varchar2(100) := 'Create Journal Trigger?';
-oddgen_jnl_indexes     constant varchar2(100) := 'Create Journal Indexes?';
 
 type str_array       is table of varchar2(32767) index by binary_integer;
 type num_array       is table of number          index by binary_integer;
 
-g_pk_cols     varchar2(4000);
-g_pk_cols_tab varchar2(30);
-g_surkey_tab  varchar2(30);
-g_surkey_col  varchar2(30);
-g_surkey_seq  varchar2(30);
-
 g_cond_cache  key_value_array;
 g_cols_cache  key_value_array;
-g_col_hits    integer;
-g_col_misses  integer;
 
 /*******************************************************************************
                                FORWARD DECLARATIONS
@@ -85,15 +79,8 @@ procedure reset_package_globals is
 begin
   logger.log('START', scope, null, params);
 
-  g_pk_cols     := null;
-  g_pk_cols_tab := null;
-  g_surkey_tab  := null;
-  g_surkey_col  := null;
-  g_surkey_seq  := null;
   g_cond_cache.delete;
   g_cols_cache.delete;
-  g_col_hits    := 0;
-  g_col_misses  := 0;
 
   logger.log('END', scope, null, params);
 exception
@@ -167,64 +154,63 @@ begin
 end view_name;
 
 -- list all the primary key columns for the table
-function pk_cols (table_name in varchar2) return varchar2 is
+function pk_cols (table_name in varchar2) return varchar2 result_cache is
   scope  logger_logs.scope%type := scope_prefix || 'pk_cols';
   params logger.tab_param;
+  o_pk_cols varchar2(4000);
 begin
   logger.append_param(params, 'table_name', table_name);
   logger.log('START', scope, null, params);
   
-  if g_pk_cols_tab is null or g_pk_cols_tab != table_name then
-    g_pk_cols_tab := table_name;
-    select listagg(cc.column_name,',') within group (order by cc.column_name)
-    into   g_pk_cols
-    from   user_constraints cn
-    join   user_cons_columns cc
-    on     cn.constraint_name = cc.constraint_name
-    where  cn.table_name = upper(pk_cols.table_name)
-    and    cn.constraint_type = 'P';
-  end if;
+  select listagg(cc.column_name,',') within group (order by cc.column_name)
+  into   o_pk_cols
+  from   user_constraints cn
+  join   user_cons_columns cc
+  on     cn.constraint_name = cc.constraint_name
+  where  cn.table_name = upper(pk_cols.table_name)
+  and    cn.constraint_type = 'P';
 
   logger.log('END', scope, null, params);
-  return g_pk_cols;
+  return o_pk_cols;
 exception
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end pk_cols;
 
-procedure get_surrogate_key (table_name in varchar2) is
+procedure get_surrogate_key
+  (table_name    in varchar2
+  ,column_name   out varchar2
+  ,sequence_name out varchar2
+  ) is
   scope  logger_logs.scope%type := scope_prefix || 'get_surrogate_key';
   params logger.tab_param;
 begin
   logger.append_param(params, 'table_name', table_name);
   logger.log('START', scope, null, params);
 
-  if g_surkey_tab is null or g_surkey_tab != table_name then
-    g_surkey_tab := table_name;
-    -- check to see if there is a surrogate key with a corresponding sequence
-    -- e.g. FT_ID would have sequence FT_ID_SEQ
-    -- used for assigning ID from sequence
-    begin
-      select cc.column_name
-            ,s.sequence_name
-      into   g_surkey_col
-            ,g_surkey_seq
-      from   user_constraints c
-      join   user_cons_columns cc
-      on     c.constraint_name = cc.constraint_name
-      join   user_sequences s
-      on     s.sequence_name = cc.column_name||'_SEQ'
-      where  c.table_name = upper(g_surkey_tab)
-      and    c.constraint_type = 'P';
-    exception
-      when no_data_found then
-        null;
-      when too_many_rows then
-        g_surkey_col := null;
-        g_surkey_seq := null;
-    end;
-  end if;
+  -- check to see if there is a surrogate key with a corresponding sequence
+  -- e.g. EMP_ID would have sequence EMP_ID_SEQ
+  -- used for assigning ID from sequence
+  begin
+    select cc.column_name
+          ,s.sequence_name
+    into   column_name
+          ,sequence_name
+    from   user_constraints c
+    join   user_cons_columns cc
+    on     c.constraint_name = cc.constraint_name
+    join   user_sequences s
+    on     s.sequence_name = cc.column_name||'_SEQ'
+    where  c.table_name = upper(get_surrogate_key.table_name)
+    and    c.constraint_type = 'P';
+  exception
+    when no_data_found then
+      null;
+    when too_many_rows then
+      column_name := null;
+      sequence_name := null;
+  end;
 
   logger.log('END', scope, null, params);
 exception
@@ -233,16 +219,26 @@ exception
     raise;
 end get_surrogate_key;
 
-function surrogate_key_column (table_name in varchar2) return varchar2 is
+function surrogate_key_column (table_name in varchar2) return varchar2 result_cache is
+  surkey_col  varchar2(30);
+  surkey_seq  varchar2(30);
 begin
-  get_surrogate_key (table_name => table_name);
-  return g_surkey_col;
+  get_surrogate_key
+    (table_name    => table_name
+    ,column_name   => surkey_col
+    ,sequence_name => surkey_seq);
+  return surkey_col;
 end surrogate_key_column;
 
-function surrogate_key_sequence (table_name in varchar2) return varchar2 is
+function surrogate_key_sequence (table_name in varchar2) return varchar2 result_cache is
+  surkey_col  varchar2(30);
+  surkey_seq  varchar2(30);
 begin
-  get_surrogate_key (table_name => table_name);
-  return g_surkey_seq;
+  get_surrogate_key
+    (table_name    => table_name
+    ,column_name   => surkey_col
+    ,sequence_name => surkey_seq);
+  return surkey_seq;
 end surrogate_key_sequence;
 
 function datatype_code (data_type in varchar2, column_name in varchar2) return varchar2 is
@@ -368,8 +364,10 @@ and    hidden_column = 'NO'
       maxcolnamelen := greatest(length(colname(i)), nvl(maxcolnamelen,0));
     end loop;
 
-    surkey_sequence := surrogate_key_sequence(table_name);
-    surkey_column   := surrogate_key_column(table_name);
+    get_surrogate_key
+      (table_name    => table_name
+      ,column_name   => surkey_column
+      ,sequence_name => surkey_sequence);
 
     for i in colname.first..colname.last loop
 
@@ -383,8 +381,8 @@ and    hidden_column = 'NO'
       elsif template_arr.exists(upper(colname(i))) then
         tmp := template_arr(upper(colname(i)));
       -- 3. if it's a surrogate key column, see if a template exists for surrogate key
-      elsif colname(i) = surkey_column and template_arr.exists(surrogate_key) then
-        tmp := template_arr(surrogate_key);
+      elsif colname(i) = surkey_column and template_arr.exists(surrogate_key_token) then
+        tmp := template_arr(surrogate_key_token);
       else
         -- 4. see if a template exists for the column's data type
         datatype(i) := datatype_code(data_type => datatype(i), column_name => colname(i));
@@ -415,16 +413,19 @@ and    hidden_column = 'NO'
         util.append_str(buf
           ,replace(replace(replace(replace(replace(
            replace(replace(replace(replace(replace(
-           replace(replace(
+           replace(replace(replace(replace(replace(
              tmp
             ,'#COL#',          col_uc)
             ,'#col#',          col_lc)
             ,'#COL28#',        substr(col_uc,1,28))
             ,'#col28#',        substr(col_lc,1,28))
+            ,'#DATATYPE#',     basetype(i))
             ,'#datatype#',     basetype(i))
             ,'#Label#',        util.user_friendly_label(colname(i)))
             ,'#MAXLEN#',       maxlen(i))
+            ,'#maxlen#',       maxlen(i))
             ,'#DATA_DEFAULT#', util.trim_whitespace(datadef(i)))
+            ,'#data_default#', util.trim_whitespace(datadef(i)))
             ,'#SEQ#',          upper(surkey_sequence))
             ,'#seq#',          lower(surkey_sequence))
             ,'#00i#',          to_char(i,'fm000'))
@@ -613,8 +614,8 @@ procedure evaluate_columns
     if util.csv_instr(buf, pk_token) > 0 then
       buf := util.csv_replace(buf, pk_token, pk_cols(table_name));
     end if;
-    if util.csv_instr(buf, surrogate_key) > 0 then
-      buf := util.csv_replace(buf, surrogate_key, surrogate_key_column(table_name));
+    if util.csv_instr(buf, surrogate_key_token) > 0 then
+      buf := util.csv_replace(buf, surrogate_key_token, surrogate_key_column(table_name));
     end if;
     return buf;
   end expand_column_lists;
@@ -655,7 +656,6 @@ procedure evaluate_columns
   begin
     if length(str) <= 4000 and g_cols_cache.exists(str) then
       buf := g_cols_cache(str);
-      g_col_hits := g_col_hits + 1;
     else
 
       util.split_str
@@ -751,18 +751,18 @@ procedure evaluate_columns
         only := util.csv_replace(only, id_token);
         util.append_str(colswhere, 'column_name LIKE ''%\_ID'' escape ''\''', ' AND ');
       end if;
-      if util.csv_instr(only, ind_token) > 0 then
-        only := util.csv_replace(only, ind_token);
-        util.append_str(colswhere, 'column_name LIKE ''%\_IND'' escape ''\''', ' AND ');
+      if util.csv_instr(only, y_token) > 0 then
+        only := util.csv_replace(only, y_token);
+        util.append_str(colswhere, 'column_name LIKE ''%\_Y'' escape ''\''', ' AND ');
       end if;
       if util.csv_instr(only, virtual_token) > 0 then
         only := util.csv_replace(only, virtual_token);
         util.append_str(colswhere, q'[virtual_column='YES']', ' AND ');
       end if;
-      if util.csv_instr(only, surrogate_key) > 0
-      and util.csv_replace(only, surrogate_key) is null
+      if util.csv_instr(only, surrogate_key_token) > 0
+      and util.csv_replace(only, surrogate_key_token) is null
       and surrogate_key_column (table_name => table_name) is null then
-        only := util.csv_replace(only, surrogate_key);
+        only := util.csv_replace(only, surrogate_key_token);
         if only is null then
           util.append_str(colswhere, '1=2'/*no surrogate key*/, ' AND ');
         end if;
@@ -809,7 +809,6 @@ procedure evaluate_columns
 
       if length(str) <= 4000 then
         g_cols_cache(str) := buf;
-        g_col_misses := g_col_misses + 1;
       end if;
 
     end if;
@@ -1075,7 +1074,7 @@ begin
     ph := placeholders;
 
     ph('<%CONTEXT>')   := security.ctx;
-    ph('<%CONTEXT_APP_USER>') := deploy.context_app_user;
+    ph('<%CONTEXT_APP_USER>') := context_app_user;
     ph('<%Entities>')  := util.user_friendly_label(table_name); -- assume tables are named in the plural
     ph('<%entities>')  := lower(util.user_friendly_label(table_name));
     ph('<%Entity>')    := util.user_friendly_label(table_name, inflect => util.singular);
@@ -1088,8 +1087,6 @@ begin
     ph('<%table>')     := lower(table_name);
     ph('<%TAPI>')      := upper(tapi_package_name(table_name));
     ph('<%tapi>')      := lower(tapi_package_name(table_name));
-    ph('<%TEMPLATE>')  := upper(template_package_name(table_name));
-    ph('<%template>')  := lower(template_package_name(table_name));
     ph('<%TRIGGER>')   := upper(journal_trigger_name(table_name));
     ph('<%trigger>')   := lower(journal_trigger_name(table_name));
     ph('<%USER>')      := upper(app_user);
@@ -1210,8 +1207,7 @@ end gen;
 
 procedure journal_table
   (table_name           in varchar2
-  ,raise_ddl_exceptions in boolean := true
-  ,journal_indexes      in boolean := false) is
+  ,raise_ddl_exceptions in boolean := true) is
   scope        logger_logs.scope%type := scope_prefix || 'journal_table';
   params       logger.tab_param;
   jnl_table    varchar2(30);
@@ -1219,7 +1215,6 @@ procedure journal_table
 begin
   logger.append_param(params, 'table_name', table_name);
   logger.append_param(params, 'raise_ddl_exceptions', raise_ddl_exceptions);
-  logger.append_param(params, 'journal_indexes', journal_indexes);
   logger.log('START', scope, null, params);
 
   logger.log_info('journal_table ' || table_name, scope, null, params);
@@ -1324,15 +1319,6 @@ begin
 
   end if;
 
-  if journal_indexes then
-    deploy.create_index
-      (index_name   => jnl_table || '$ix1'
-      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',version_id)');
-    deploy.create_index
-      (index_name   => jnl_table || '$ix2'
-      ,index_target => jnl_table || '(' || pk_cols(table_name) || ',jn$timestamp)');
-  end if;
-
   logger.log('END', scope, null, params);
 exception
   when others then
@@ -1359,7 +1345,7 @@ begin
   end if;
 
   gen
-    (template_name        => 'CREATE_JOURNAL_TRIGGER'
+    (template_name        => 'create_journal_trigger'
     ,table_name           => table_name
     ,raise_ddl_exceptions => raise_ddl_exceptions);
 
@@ -1370,14 +1356,11 @@ exception
     raise;
 end journal_trigger;
 
-procedure all_journals
-  (journal_triggers in boolean := true
-  ,journal_indexes  in boolean := false) is
+procedure all_journals (journal_triggers in boolean := true) is
   scope  logger_logs.scope%type := scope_prefix || 'all_journals';
   params logger.tab_param;
 begin
   logger.append_param(params, 'journal_triggers', journal_triggers);
-  logger.append_param(params, 'journal_indexes', journal_indexes);
   logger.log('START', scope, null, params);
 
   for r in (
@@ -1389,8 +1372,7 @@ begin
 
     journal_table
       (table_name           => r.table_name
-      ,raise_ddl_exceptions => false
-      ,journal_indexes      => journal_indexes);
+      ,raise_ddl_exceptions => false);
 
     if journal_triggers then
       journal_trigger
@@ -1486,7 +1468,6 @@ begin
   l_params(oddgen_execute) := 'No';
   l_params(oddgen_jnl_table) := 'No';
   l_params(oddgen_jnl_trigger) := 'No';
-  l_params(oddgen_jnl_indexes) := 'No';
   return l_params;
 end get_params;
 
@@ -1496,7 +1477,6 @@ begin
   return new t_string(oddgen_execute
                      ,oddgen_jnl_table
                      ,oddgen_jnl_trigger
-                     ,oddgen_jnl_indexes
                      ,oddgen_gen_tapi
                      );
 end get_ordered_params;
@@ -1513,15 +1493,9 @@ begin
   if in_params(oddgen_execute) = 'No' then
     l_lov(oddgen_jnl_table) := new t_string('No');
     l_lov(oddgen_jnl_trigger) := new t_string('No');
-    l_lov(oddgen_jnl_indexes) := new t_string('No');
   else
     l_lov(oddgen_jnl_table) := new t_string('Yes', 'No');
     l_lov(oddgen_jnl_trigger) := new t_string('Yes', 'No');
-    if in_params(oddgen_jnl_table) = 'Yes' then
-      l_lov(oddgen_jnl_indexes) := new t_string('Yes', 'No');
-    else
-      l_lov(oddgen_jnl_indexes) := new t_string('No');
-    end if;
   end if;
   return l_lov;
 end get_lov;
@@ -1564,17 +1538,15 @@ begin
 
   if in_params(oddgen_jnl_table) = 'Yes' then
 
-    journal_table
-      (table_name      => in_object_name
-      ,journal_indexes => in_params(oddgen_jnl_indexes) = 'Yes');
+    journal_table (table_name => in_object_name);
   
   end if;
 
   if in_params(oddgen_gen_tapi) = 'Yes' then
   
-    process_template('TAPI_PACKAGE_SPEC');
+    process_template('tapi_package_spec');
     
-    process_template('TAPI_PACKAGE_BODY');
+    process_template('tapi_package_body');
 
   end if;
 
@@ -1585,7 +1557,7 @@ begin
   end if;
 
   buf := buf || gen
-    (template_name => 'CODESAMPLES'
+    (template_name => 'codesamples'
     ,table_name    => in_object_name);
 
   logger.log('END', scope, buf, params);

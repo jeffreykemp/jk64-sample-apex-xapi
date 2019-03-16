@@ -7,9 +7,9 @@ create table #name#
 end;
 /
 
-begin deploy.add_constraint(constraint_name => 'hosts_pk', constraint_ddl => q'[alter table hosts add constraint #NAME# primary key ( host_id )]'); end;
+begin deploy.add_constraint(constraint_name => 'hosts_pk', constraint_ddl => q'[alter table hosts add constraint #name# primary key ( host_id )]'); end;
 /
-begin deploy.add_constraint(constraint_name => 'host_name_uk', constraint_ddl => q'[alter table hosts add constraint #NAME# unique ( name )]'); end;
+begin deploy.add_constraint(constraint_name => 'host_name_uk', constraint_ddl => q'[alter table hosts add constraint #name# unique ( name )]'); end;
 /
-begin deploy.add_constraint(constraint_name => 'host_deleted_ck', constraint_ddl => q'[alter table hosts add constraint #NAME# check ( deleted_y = 'Y' )]'); end;
+begin deploy.add_constraint(constraint_name => 'host_deleted_ck', constraint_ddl => q'[alter table hosts add constraint #name# check ( deleted_y = 'Y' )]'); end;
 /

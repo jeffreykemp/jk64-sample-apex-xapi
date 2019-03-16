@@ -8,9 +8,9 @@ create table #name#
 end;
 /
 
-begin deploy.add_constraint(constraint_name => 'venue_pk', constraint_ddl => q'[alter table venues add constraint #NAME# primary key ( venue_id )]'); end;
+begin deploy.add_constraint(constraint_name => 'venue_pk', constraint_ddl => q'[alter table venues add constraint #name# primary key ( venue_id )]'); end;
 /
-begin deploy.add_constraint(constraint_name => 'venue_name_uk', constraint_ddl => q'[alter table venues add constraint #NAME# unique ( name )]'); end;
+begin deploy.add_constraint(constraint_name => 'venue_name_uk', constraint_ddl => q'[alter table venues add constraint #name# unique ( name )]'); end;
 /
-begin deploy.add_constraint(constraint_name => 'venue_deleted_ck', constraint_ddl => q'[alter table venues add constraint #NAME# check ( deleted_y = 'Y' )]'); end;
+begin deploy.add_constraint(constraint_name => 'venue_deleted_ck', constraint_ddl => q'[alter table venues add constraint #name# check ( deleted_y = 'Y' )]'); end;
 /

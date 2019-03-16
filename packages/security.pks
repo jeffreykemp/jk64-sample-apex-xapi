@@ -4,7 +4,7 @@ create or replace package security as
  12-NOV-2014 Jeffrey Kemp
 *******************************************************************************/
 
-ctx constant varchar2(30) := 'APP_CTX';
+ctx constant varchar2(30) := 'SAMPLE_CTX';
 
 -- Authorizations
 administrator  constant varchar2(100) := 'Administrator';  -- "god" mode, can modify user security privileges

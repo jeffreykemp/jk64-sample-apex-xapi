@@ -55,7 +55,7 @@ begin
   logger.log('START', scope, null, params);
   
   buf := gen_tapis.gen
-    (template_name => 'CREATE_LOV_VIEW'
+    (template_name => 'create_lov_view'
     ,table_name    => in_object_name);
   
   logger.log('END', scope, buf, params);
