@@ -123,70 +123,67 @@ cursor cur is
   select x.*
         ,x.rowid as "ROWID"
   from   <%table> x;
-subtype rowtype is cur%rowtype;
-type arraytype is table of rowtype index by binary_integer;
+subtype t_row is cur%rowtype;
+type t_array is table of t_row index by binary_integer;
 
-type rvtype is record
+type t_rv is record
   (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
    #col#... varchar2(4000)~
    #col#... <%table>.#col#%type{ID}~
    #col#... <%table>.#col#%type{LOB}~
    #col#... varchar2(20){ROWID}~
   ,<%END>);
-type rvarraytype is table of rvtype index by binary_integer;
+type t_rvarray is table of t_rv index by binary_integer;
 
 procedure append_params
   (params in out logger.tab_param
-  ,r      in rowtype);
+  ,r      in t_row);
 
 procedure append_params
   (params in out logger.tab_param
-  ,rv     in rvtype);
+  ,rv     in t_rv);
 
 -- validate the row (returns an error message if invalid)
-function val (rv in rvtype) return varchar2;
+function val (rv in t_rv) return varchar2;
 
 -- insert a row
-function ins (rv in rvtype) return rowtype;
+function ins (rv in t_rv) return t_row;
 
--- insert multiple rows, array may be sparse; returns no. records inserted
-function bulk_ins (arr in rvarraytype) return number;
+-- insert multiple rows, array may be sparse
+procedure bulk_ins (arr in t_rvarray);
 
 -- update a row
-function upd (rv in rvtype) return rowtype;
+function upd (rv in t_rv) return t_row;
 
--- update multiple rows, array may be sparse; returns no. records updated
-function bulk_upd (arr in rvarraytype) return number;
+-- update multiple rows, array may be sparse
+procedure bulk_upd (arr in t_rvarray);
 
 -- delete a row
-procedure del (rv in rvtype);
+procedure del (rv in t_rv);
 
--- delete multiple rows; array may be sparse; returns no. records deleted
-function bulk_del (arr in rvarraytype) return number;
+-- delete multiple rows; array may be sparse
+procedure bulk_del (arr in t_rvarray);
 <%IF SOFT_DELETE>
 -- undelete a row
-function undel (rv in rvtype) return rowtype;
+function undel (rv in t_rv) return t_row;
 
--- undelete multiple rows; array may be sparse; returns no. records deleted
-function bulk_undel (arr in rvarraytype) return number;
-
--- permanently delete rows marked as deleted
-procedure purge_recyclebin;
+-- undelete multiple rows; array may be sparse
+procedure bulk_undel (arr in t_rvarray);
 <%END IF>
--- convert an rvtype to a rowtype
-function to_rowtype (rv in rvtype) return rowtype;
+-- convert an t_rv to a t_row
+function to_row (rv in t_rv) return t_row;
 
--- convert a rowtype to an rvtype
-function to_rvtype (r in rowtype) return rvtype;
+-- convert a t_row to an t_rv
+function to_rv (r in t_row) return t_rv;
 
 -- get a row (raise NO_DATA_FOUND if not found; returns default record if parameter is null)
-function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY,SURROGATE_KEY INCLUDING ROWID>
+function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
               #col# in <%table>.#col#%type~
               p_#col# in varchar2{ROWID}~
-             ,<%END>) return rowtype;
+             ,<%END>) return t_row;
 
 -- convert to a copy
-function copy (r in rowtype) return rowtype;
+function copy (r in t_row) return t_row;
 
 -- Use these procedures to disable and re-enable the journal trigger just for
 -- this session (to disable for all sessions, just disable the database trigger
@@ -214,7 +211,7 @@ scope_prefix constant varchar2(31) := lower($$plsql_unit) || '.';
 C_#COL28#... constant varchar2(30) := '#COL#';~
 <%END>
 
-procedure lost_upd (rv in rvtype) is
+procedure lost_upd (rv in t_rv) is
   scope              logger_logs.scope%type := scope_prefix || 'lost_upd';
   params             logger.tab_param;
   db_last_updated_by <%table>.last_updated_by%type;
@@ -254,21 +251,21 @@ end lost_upd;
 
 procedure append_params
   (params in out logger.tab_param
-  ,r      in rowtype) is
+  ,r      in t_row) is
 begin
   <%COLUMNS INCLUDING ROWID>
   logger.append_param(params, 'r.#col#',... r.#col#);~
-  logger.append_param(params, 'r.#col#.len',... dbms_lob.getlength(r.#col#));{LOB}~
+  logger.append_param(params, 'r.#col#.len', dbms_lob.getlength(r.#col#));{LOB}~
   <%END>
 end append_params;
 
 procedure append_params
   (params in out logger.tab_param
-  ,rv     in rvtype) is
+  ,rv     in t_rv) is
 begin
   <%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
   logger.append_param(params, 'rv.#col#',... rv.#col#);~
-  logger.append_param(params, 'rv.#col#.len',... dbms_lob.getlength(rv.#col#));{LOB}~
+  logger.append_param(params, 'rv.#col#.len', dbms_lob.getlength(rv.#col#));{LOB}~
   <%END>
 end append_params;
 
@@ -286,15 +283,12 @@ begin
   logger.log('END', scope, null, params);
   return lm;
 exception
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end label_map;
 
-function val (rv in rvtype) return varchar2 is
+function val (rv in t_rv) return varchar2 is
   -- Validates the record but without reference to any other rows or tables
   -- (i.e. avoid any queries in here).
   -- Unique and referential integrity should be validated via suitable db
@@ -334,7 +328,7 @@ exception
     raise;
 end val;
 
-procedure bulk_val (arr in rvarraytype) is
+procedure bulk_val (arr in t_rvarray) is
   scope     logger_logs.scope%type := scope_prefix || 'bulk_val';
   params    logger.tab_param;
   i         binary_integer;
@@ -370,11 +364,10 @@ exception
     raise;
 end bulk_val;
 
-function ins (rv in rvtype) return rowtype is
+function ins (rv in t_rv) return t_row is
   scope     logger_logs.scope%type := scope_prefix || 'ins';
   params    logger.tab_param;
-  lr        rvtype := rv;
-  r         rowtype;
+  r         t_row;
   error_msg varchar2(32767);
 begin
   append_params(params, rv);
@@ -385,20 +378,18 @@ begin
   if error_msg is not null then
     util.raise_error(error_msg, scope, params);
   end if;
-  
-  lr := rv;
 
   insert into <%table>
         (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
         #col#~
         ,<%END>)
   values(<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
-         lr.#col#~
-         util.num_val(lr.#col#){NUMBER}~
-         util.date_val(lr.#col#){DATE}~
-         util.datetime_val(lr.#col#){DATETIME}~
-         util.timestamp_val(lr.#col#){TIMESTAMP}~
-         util.timestamp_tz_val(lr.#col#){TIMESTAMP_TZ}~
+         rv.#col#~
+         util.num_val(rv.#col#){NUMBER}~
+         util.date_val(rv.#col#){DATE}~
+         util.datetime_val(rv.#col#){DATETIME}~
+         util.timestamp_val(rv.#col#){TIMESTAMP}~
+         util.timestamp_tz_val(rv.#col#){TIMESTAMP_TZ}~
         ,<%END>)
   returning
          <%COLUMNS INCLUDING ROWID>
@@ -424,18 +415,14 @@ exception
     raise;
 end ins;
 
-function bulk_ins (arr in rvarraytype) return number is
+procedure bulk_ins (arr in t_rvarray) is
   scope    logger_logs.scope%type := scope_prefix || 'bulk_ins';
   params   logger.tab_param;
-  lr       rvarraytype := arr;
-  rowcount number;
 begin
   logger.append_param(params, 'arr.COUNT', arr.count);
   logger.log('START', scope, null, params);
 
   bulk_val(arr);
-
-  lr := arr;
 
   forall i in indices of arr
     insert into <%table>
@@ -443,20 +430,17 @@ begin
             #col#~
            ,<%END>)
     values (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
-            lr(i).#col#~
-            util.num_val(lr(i).#col#){NUMBER}~
-            util.date_val(lr(i).#col#){DATE}~
-            util.datetime_val(lr(i).#col#){DATETIME}~
-            util.timestamp_val(lr(i).#col#){TIMESTAMP}~
-            util.timestamp_tz_val(lr(i).#col#){TIMESTAMP_TZ}~
+            arr(i).#col#~
+            util.num_val(arr(i).#col#){NUMBER}~
+            util.date_val(arr(i).#col#){DATE}~
+            util.datetime_val(arr(i).#col#){DATETIME}~
+            util.timestamp_val(arr(i).#col#){TIMESTAMP}~
+            util.timestamp_tz_val(arr(i).#col#){TIMESTAMP_TZ}~
            ,<%END>);
 
-  rowcount := sql%rowcount;
+  logger.log('insert <%table>: ' || sql%rowcount, scope, null, params);
 
-  logger.log('insert <%table>: ' || rowcount, scope, null, params);
-
-  logger.log('END', scope, 'rowcount=' || rowcount, params);
-  return rowcount;
+  logger.log('END', scope, null, params);
 exception
   when dup_val_on_index then
     util.raise_dup_val_on_index (scope, params);
@@ -468,11 +452,10 @@ exception
     raise;
 end bulk_ins;
 
-function upd (rv in rvtype) return rowtype is
+function upd (rv in t_rv) return t_row is
   scope     logger_logs.scope%type := scope_prefix || 'upd';
   params    logger.tab_param;
-  lr        rvtype := rv;
-  r         rowtype;
+  r         t_row;
   error_msg varchar2(32767);
 begin
   append_params(params, rv);
@@ -488,19 +471,17 @@ begin
     util.raise_error(error_msg, scope, params);
   end if;
 
-  lr := rv;
-
   update <%table> x
   set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
-         x.#col#... = lr.#col#~
-         x.#col#... = util.num_val(lr.#col#){NUMBER}~
-         x.#col#... = util.date_val(lr.#col#){DATE}~
-         x.#col#... = util.datetime_val(lr.#col#){DATETIME}~
-         x.#col#... = util.timestamp_val(lr.#col#){TIMESTAMP}~
-         x.#col#... = util.timestamp_tz_val(lr.#col#){TIMESTAMP_TZ}}~
+         x.#col#... = rv.#col#~
+         x.#col#... = util.num_val(rv.#col#){NUMBER}~
+         x.#col#... = util.date_val(rv.#col#){DATE}~
+         x.#col#... = util.datetime_val(rv.#col#){DATETIME}~
+         x.#col#... = util.timestamp_val(rv.#col#){TIMESTAMP}~
+         x.#col#... = util.timestamp_tz_val(rv.#col#){TIMESTAMP_TZ}}~
         ,<%END>
   where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY,VERSION_ID INCLUDING ROWID>
-         x.#col#... = lr.#col#~
+         x.#col#... = rv.#col#~
   and    <%END>
   returning
          <%COLUMNS INCLUDING ROWID>
@@ -534,39 +515,32 @@ exception
     raise;
 end upd;
 
-function bulk_upd (arr in rvarraytype) return number is
+procedure bulk_upd (arr in t_rvarray) is
   scope    logger_logs.scope%type := scope_prefix || 'bulk_upd';
   params   logger.tab_param;
-  lr       rvarraytype := arr;
-  rowcount number;
 begin
   logger.append_param(params, 'arr.count', arr.count);
   logger.log('START', scope, null, params);
 
   bulk_val(arr);
 
-  lr := arr;
-
   forall i in indices of arr
     update <%table> x
     set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
-           x.#col#... = lr(i).#col#~
-           x.#col#... = util.num_val(lr(i).#col#){NUMBER}~
-           x.#col#... = util.date_val(lr(i).#col#){DATE}~
-           x.#col#... = util.datetime_val(lr(i).#col#){DATETIME}~
-           x.#col#... = util.timestamp_val(lr(i).#col#){TIMESTAMP}~
-           x.#col#... = util.timestamp_tz_val(lr(i).#col#){TIMESTAMP_TZ}~
+           x.#col#... = arr(i).#col#~
+           x.#col#... = util.num_val(arr(i).#col#){NUMBER}~
+           x.#col#... = util.date_val(arr(i).#col#){DATE}~
+           x.#col#... = util.datetime_val(arr(i).#col#){DATETIME}~
+           x.#col#... = util.timestamp_val(arr(i).#col#){TIMESTAMP}~
+           x.#col#... = util.timestamp_tz_val(arr(i).#col#){TIMESTAMP_TZ}~
           ,<%END>
     where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
-           x.#col#... = lr(i).#col#~
+           x.#col#... = arr(i).#col#~
     and    <%END>;
 
-  rowcount := sql%rowcount;
-
-  logger.log('update <%table>: ' || rowcount, scope, null, params);
+  logger.log('update <%table>: ' || sql%rowcount, scope, null, params);
 
   logger.log('END', scope, null, params);
-  return rowcount;
 exception
   when dup_val_on_index then
     util.raise_dup_val_on_index (scope, params);
@@ -580,10 +554,9 @@ exception
     raise;
 end bulk_upd;
 
-procedure del (rv in rvtype) is
+procedure del (rv in t_rv) is
   scope  logger_logs.scope%type := scope_prefix || 'del';
   params logger.tab_param;
-  lr rvtype := rv;
 begin
   append_params(params, rv);
   logger.log('START', scope, null, params);
@@ -592,13 +565,11 @@ begin
   assert(rv.#col# is not null, '#col# cannot be null', scope);~
   <%END>
 
-  lr := rv;
-
 <%IF SOFT_DELETE>
   update <%table> x
   set    x.deleted_y = 'Y'
   where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY,VERSION_ID INCLUDING ROWID>
-         x.#col#... = lr.#col#~
+         x.#col#... = rv.#col#~
   and    <%END>;
 
   if sql%notfound then
@@ -609,7 +580,7 @@ begin
 <%ELSE>
   delete <%table> x
   where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY,VERSION_ID INCLUDING ROWID>
-         x.#col#... = lr.#col#~
+         x.#col#... = rv.#col#~
   and    <%END>;
 
   if sql%notfound then
@@ -633,42 +604,33 @@ exception
     raise;
 end del;
 
-function bulk_del (arr in rvarraytype) return number is
+procedure bulk_del (arr in t_rvarray) is
   scope    logger_logs.scope%type := scope_prefix || 'bulk_del';
   params   logger.tab_param;
-  lr       rvarraytype := arr;
-  rowcount number;
 begin
   logger.append_param(params, 'arr.count', arr.count);
   logger.log('START', scope, null, params);
-
-  lr := arr;
 
 <%IF SOFT_DELETE>
   forall i in indices of arr
     update <%table> x
     set    x.deleted_y = 'Y'
     where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
-           x.#col#... = lr(i).#col#~
+           x.#col#... = arr(i).#col#~
     and    <%END>;
 
-  rowcount := sql%rowcount;
-
-  logger.log('update <%table>.deleted_y=Y: ' || rowcount, scope, null, params);
+  logger.log('update <%table>.deleted_y=Y: ' || sql%rowcount, scope, null, params);
 <%ELSE>
   forall i in indices of arr
     delete <%table> x
     where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
-           x.#col#... = lr(i).#col#~
+           x.#col#... = arr(i).#col#~
     and    <%END>;
 
-  rowcount := sql%rowcount;
-
-  logger.log('delete <%table>: ' || rowcount, scope, null, params);
+  logger.log('delete <%table>: ' || sql%rowcount, scope, null, params);
 <%END IF>
 
-  logger.log('END', scope, 'rowcount=' || rowcount, params);
-  return rowcount;
+  logger.log('END', scope, null, params);
 exception
   when util.ref_constraint_violation then
     util.raise_del_ref_con_violation (scope, params);
@@ -681,11 +643,10 @@ exception
 end bulk_del;
 
 <%IF SOFT_DELETE>
-function undel (rv in rvtype) return rowtype is
+function undel (rv in t_rv) return t_row is
   scope     logger_logs.scope%type := scope_prefix || 'undel';
   params    logger.tab_param;
-  lr        rvtype := rv;
-  r         rowtype;
+  r         t_row;
   error_msg varchar2(32767);
 begin
   append_params(params, rv);
@@ -695,12 +656,10 @@ begin
   assert(rv.#col# is not null, '#col# cannot be null', scope);~
   <%END>
 
-  lr := rv;
-
   update <%table> x
   set    x.deleted_y = null
   where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY,VERSION_ID INCLUDING ROWID>
-         x.#col#... = lr.#col#~
+         x.#col#... = rv.#col#~
   and    <%END>
   returning
          <%COLUMNS INCLUDING ROWID>
@@ -730,30 +689,23 @@ exception
     raise;
 end undel;
 
-function bulk_undel (arr in rvarraytype) return number is
+procedure bulk_undel (arr in t_rvarray) is
   scope    logger_logs.scope%type := scope_prefix || 'bulk_undel';
   params   logger.tab_param;
-  lr       rvarraytype := arr;
-  rowcount number;
 begin
   logger.append_param(params, 'arr.count', arr.count);
   logger.log('START', scope, null, params);
-
-  lr := arr;
 
   forall i in indices of arr
     update <%table> x
     set    x.deleted_y = null
     where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
-           x.#col#... = lr(i).#col#~
+           x.#col#... = arr(i).#col#~
     and    <%END>;
 
-  rowcount := sql%rowcount;
-
-  logger.log('update <%table>.deleted_y=null: ' || rowcount, scope, null, params);
+  logger.log('update <%table>.deleted_y=null: ' || sql%rowcount, scope, null, params);
 
   logger.log('END', scope, null, params);
-  return rowcount;
 exception
   when util.application_error then
     logger.log_error('Application Error', scope, null, params);
@@ -762,35 +714,14 @@ exception
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end bulk_undel;
-
--- permanently delete rows marked as deleted
-procedure purge_recyclebin is
-  scope  logger_logs.scope%type := scope_prefix || 'purge_recyclebin';
-  params logger.tab_param;
-begin
-  logger.log('START', scope, null, params);
-
-  delete <%table> x where x.deleted_y = 'Y';
-
-  logger.log('delete <%table>: ' || sql%rowcount, scope, null, params);
-
-  logger.log('END', scope, null, params);
-exception
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end purge_recyclebin;
 <%END IF>
 
--- convert an rvtype to a rowtype, no validation (exceptions may be raised on
+-- convert an t_rv to a t_row, no validation (exceptions may be raised on
 -- datatype conversion errors), no audit columns
-function to_rowtype (rv in rvtype) return rowtype is
-  scope  logger_logs.scope%type := scope_prefix || 'to_rowtype';
+function to_row (rv in t_rv) return t_row is
+  scope  logger_logs.scope%type := scope_prefix || 'to_row';
   params logger.tab_param;
-  r      rowtype;
+  r      t_row;
 begin
   append_params(params, rv);
   logger.log('START', scope, null, params);
@@ -807,19 +738,16 @@ begin
   logger.log('END', scope, null, params);
   return r;
 exception
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
-end to_rowtype;
+end to_row;
 
--- convert a rowtype to an rvtype
-function to_rvtype (r in rowtype) return rvtype is
-  scope  logger_logs.scope%type := scope_prefix || 'to_rvtype';
+-- convert a t_row to an t_rv
+function to_rv (r in t_row) return t_rv is
+  scope  logger_logs.scope%type := scope_prefix || 'to_rv';
   params logger.tab_param;
-  rv     rvtype;
+  rv     t_rv;
 begin
   append_params(params, r);
   logger.log('START', scope, null, params);
@@ -836,21 +764,18 @@ begin
   logger.log('END', scope, null, params);
   return rv;
 exception
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
-end to_rvtype;
+end to_rv;
 
 function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
               #col# in <%table>.#col#%type~
               p_#col# in varchar2{ROWID}~
-             ,<%END>) return rowtype is
+             ,<%END>) return t_row is
   scope   logger_logs.scope%type := scope_prefix || 'get';
   params  logger.tab_param;
-  r       rowtype;
+  r       t_row;
 begin
   <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
   logger.append_param(params, '#col#', #col#);~
@@ -890,18 +815,15 @@ exception
   when no_data_found then
     logger.log_error('No Data Found', scope, null, params);
     raise;
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end get;
 
-function copy (r in rowtype) return rowtype is
+function copy (r in t_row) return t_row is
   scope  logger_logs.scope%type := scope_prefix || 'copy';
   params logger.tab_param;
-  nr     rowtype;
+  nr     t_row;
 begin
   append_params(params, r);
   logger.log('START', scope, null, params);
@@ -916,9 +838,6 @@ begin
   logger.log('END', scope, null, params);
   return nr;
 exception
-  when util.application_error then
-    logger.log_error('Application Error', scope, null, params);
-    raise;
   when others then
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
@@ -926,33 +845,13 @@ end copy;
 
 -- may be used to disable and re-enable the journal trigger for this session
 procedure disable_journal_trigger is
-  scope  logger_logs.scope%type := scope_prefix || 'disable_journal_trigger';
-  params logger.tab_param;
 begin
-  logger.log('START', scope, null, params);
-
   security.disable_journal_trigger('<%TRIGGER>');
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
 end disable_journal_trigger;
 
 procedure enable_journal_trigger is
-  scope  logger_logs.scope%type := scope_prefix || 'enable_journal_trigger';
-  params logger.tab_param;
 begin
-  logger.log('START', scope, null, params);
-
   security.enable_journal_trigger('<%TRIGGER>');
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
 end enable_journal_trigger;
 
 end <%tapi>;
@@ -1009,19 +908,23 @@ from <%table>;
 
 -- The following are code samples to copy-and-paste as needed.
 
--- e.g. generate a rowtype record; remove any columns not needed
-r := <%tapi>.rowtype
+-- e.g. generate a t_row record; remove any columns not needed
+r := <%tapi>.t_row
   (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
    #col#... => null --#col#~
   ,<%END>);
 
 -- e.g. put this in a Form Page Load Process
 declare
-  r <%tapi>.rowtype;
+  r <%tapi>.t_row;
 begin
   r := <%tapi>.get(<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col#... => :P1_#COL28#~p_#col#... => :P1_#COL28#{ROWID}~, <%END>);
   <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
   :P1_#COL28#... := r.#col#;~
+  :P1_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
+  :P1_#COL28#... := to_char(r.#col#, util.datetime_format);{DATETIME}~
+  :P1_#COL28#... := to_char(r.#col#, util.timestamp_format);{TIMESTAMP}~
+  :P1_#COL28#... := to_char(r.#col#, util.timestamp_tz_format);{TIMESTAMP_TZ}~
   <%END>
 end;
 
@@ -1033,10 +936,10 @@ return <%tapi>.val (rv => <%tapi>.rvtype
 
 -- e.g. put this in a Form DML Process
 declare
-  rv <%tapi>.rvtype;
-  r  <%tapi>.rowtype;
+  rv <%tapi>.t_rv;
+  r  <%tapi>.t_row;
 begin
-  rv := <%tapi>.rvtype
+  rv := <%tapi>.t_rv
     (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
      #col#... => :P1_#COL28#~
     ,<%END>);
@@ -1069,7 +972,7 @@ end;
 
 -- e.g. put this in an Interactive Grid validation "PL/SQL Function (returning Error
 -- Text)" For Created and Modified Rows
-<%tapi>.val (rv => <%tapi>.rvtype
+<%tapi>.val (rv => <%tapi>.t_rv
   (<%COLUMNS EXCLUDING AUDIT>
    #col#... => :#COL#~
   ,<%END>));
@@ -1077,9 +980,9 @@ end;
 -- e.g. put this in an "Interactive Grid - Automatic Row Processing (DML)" process
 -- with Target Type = PL/SQL Code
 declare
-  rv <%tapi>.rvtype;
+  rv <%tapi>.t_rv;
 begin
-  rv := <%tapi>.rvtype
+  rv := <%tapi>.t_rv
     (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
      #col#... => :#COL#~
     ,<%END>);    

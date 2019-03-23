@@ -241,6 +241,20 @@ begin
   return surkey_seq;
 end surrogate_key_sequence;
 
+function identity_column (table_name in varchar2) return varchar2 result_cache is
+  o_col varchar2(30);
+begin
+  select listagg(c.column_name,',') within group (order by c.column_id)
+  into   o_col
+  from   user_tab_columns c
+  where  c.table_name = upper(identity_column.table_name)
+  and    c.identity_column = 'YES';
+  return o_col;
+exception
+  when no_data_found then
+    return null;
+end identity_column;
+
 function datatype_code (data_type in varchar2, column_name in varchar2) return varchar2 is
 begin
   return case
@@ -300,7 +314,7 @@ function cols
   tablecolumn        varchar2(100);
   surkey_sequence    varchar2(30);
   surkey_column      varchar2(30);
-  pseudocol          t_str_array;
+  pseudocol          apex_t_varchar2;
   idx                number;
   maxcolnamelen      number;
   lob_datatypes_list varchar2(4000);
@@ -342,7 +356,7 @@ and    hidden_column = 'NO'
     using upper(table_name), templates.generated_columns_list;
   
   if pseudocolumns is not null then
-    pseudocol := csv_util_pkg.csv_to_array(pseudocolumns);
+    pseudocol := apex_string.split(pseudocolumns,',');
     for i in 1..pseudocol.count loop
       if pseudocol(i) = rowid_token then
         idx := 0; --put rowid as first in list
@@ -453,7 +467,7 @@ end cols;
 
 function chunkerize
   (buf    in out nocopy clob
-  ,tokens in t_str_array
+  ,tokens in apex_t_varchar2
   ) return str_array is
   scope        logger_logs.scope%type := scope_prefix || 'chunkerize';
   params       logger.tab_param;
@@ -573,16 +587,14 @@ procedure evaluate_columns
     ,include out nocopy varchar2
     ,exclude out nocopy varchar2
     ,only    out nocopy varchar2) is
-    arr         t_str_array;
+    arr         apex_t_varchar2;
     parse_token varchar2(100);
   begin
     include := '';
     exclude := '';
     only    := '';
 
-    arr := csv_util_pkg.csv_to_array
-      (p_csv_line  => cmd
-      ,p_separator => ' ');
+    arr := apex_string.split(cmd,' ');
 
     for i in 1..arr.count loop
       if arr(i) is not null then
@@ -621,10 +633,10 @@ procedure evaluate_columns
   end expand_column_lists;
 
   function remove_other_tables (str in varchar2) return varchar2 is
-    arr t_str_array;
+    arr apex_t_varchar2;
     buf varchar2(32767);
   begin
-    arr := csv_util_pkg.csv_to_array(str);
+    arr := apex_string.split(str,',');
     for i in 1..arr.count loop
       if arr(i) like '%.%' then
         -- only keep the column if it's for this table
@@ -642,7 +654,7 @@ procedure evaluate_columns
   function evaluate_column_spec (str in varchar2) return varchar2 is
     colcmd        varchar2(32767);
     colptn        varchar2(32767);
-    ptn           t_str_array;
+    ptn           apex_t_varchar2;
     sep           varchar2(4000);
     lhs           varchar2(4000);
     rhs           varchar2(4000);
@@ -650,7 +662,8 @@ procedure evaluate_columns
     include       varchar2(4000);
     exclude       varchar2(4000);
     only          varchar2(4000);
-    colswhere     varchar2(4000);
+    colswhere1    varchar2(4000);
+    colswhere2    varchar2(4000);
     pseudocolumns varchar2(4000);
     buf           varchar2(32767);
   begin
@@ -673,119 +686,125 @@ procedure evaluate_columns
         ,only    => only);
 
       -- EXCLUDING option
-      if util.csv_instr(exclude, virtual_token) > 0 then
-        include := util.csv_replace(include, virtual_token);
-        util.append_str(colswhere, q'[virtual_column='NO']', ' AND ');
-      end if;
-      if util.csv_instr(exclude, nullable_token) > 0 then
-        exclude := util.csv_replace(exclude, nullable_token);
-        util.append_str(colswhere, q'[nullable='N']', ' AND ');
-      end if;
-      if util.csv_instr(exclude, default_value_token) > 0 then
-        exclude := util.csv_replace(exclude, default_value_token);
-        util.append_str(colswhere, 'data_default IS NULL', ' AND ');
-      end if;
-      if util.csv_instr(exclude, lobs_token) > 0 then
-        exclude := util.csv_replace(exclude, lobs_token);
-        util.append_str(colswhere, 'data_type NOT IN ' || to_csv_inlist(templates.lob_datatypes_list), ' AND ');
-      end if;
-      if util.csv_instr(exclude, code_token) > 0 then
-        exclude := util.csv_replace(exclude, code_token);
-        util.append_str(colswhere, 'column_name NOT LIKE ''%\_CODE'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(exclude, id_token) > 0 then
-        exclude := util.csv_replace(exclude, id_token);
-        util.append_str(colswhere, 'column_name NOT LIKE ''%\_ID'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(exclude, y_token) > 0 then
-        exclude := util.csv_replace(exclude, y_token);
-        util.append_str(colswhere, 'column_name NOT LIKE ''%\_Y'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(exclude, default_on_null_token) > 0 then
-        exclude := util.csv_replace(exclude, default_on_null_token);
-        util.append_str(colswhere, q'[default_on_null='NO']', ' AND ');
-      end if;
-      if util.csv_instr(exclude, identity_token) > 0 then
-        exclude := util.csv_replace(exclude, identity_token);
-        util.append_str(colswhere, q'[identity_column='NO']', ' AND ');
-      end if;
-      exclude := expand_column_lists(exclude);
       if exclude is not null then
-        -- if any table-specific columns are in the list, remove them if they're
-        -- not for this table
-        exclude := remove_other_tables(exclude);
-        util.append_str(colswhere, 'column_name NOT IN ' || to_csv_inlist(exclude), ' AND ');
-      end if;
-
-      -- INCLUDING option
-      -- if the table uses a surrogate key, don't include ROWID
-      if util.csv_instr(include, rowid_token) > 0
-      and surrogate_key_column (table_name => table_name) is not null then
-        include := util.csv_replace(include, rowid_token);
-      end if;
-      if include is not null then
-        -- if any table-specific columns are in the list, remove them if they're
-        -- not for this table
-        include := remove_other_tables(include);
-        pseudocolumns := include;
+        if util.csv_instr(exclude, virtual_token) > 0 then
+          include := util.csv_replace(include, virtual_token);
+          util.append_str(colswhere1, q'[virtual_column='NO']', ' and ');
+        end if;
+        if util.csv_instr(exclude, nullable_token) > 0 then
+          exclude := util.csv_replace(exclude, nullable_token);
+          util.append_str(colswhere1, q'[nullable='N']', ' and ');
+        end if;
+        if util.csv_instr(exclude, default_value_token) > 0 then
+          exclude := util.csv_replace(exclude, default_value_token);
+          util.append_str(colswhere1, 'data_default is null', ' and ');
+        end if;
+        if util.csv_instr(exclude, lobs_token) > 0 then
+          exclude := util.csv_replace(exclude, lobs_token);
+          util.append_str(colswhere1, 'data_type not in ' || to_csv_inlist(templates.lob_datatypes_list), ' and ');
+        end if;
+        if util.csv_instr(exclude, code_token) > 0 then
+          exclude := util.csv_replace(exclude, code_token);
+          util.append_str(colswhere1, 'column_name not like ''%\_CODE'' escape ''\''', ' and ');
+        end if;
+        if util.csv_instr(exclude, id_token) > 0 then
+          exclude := util.csv_replace(exclude, id_token);
+          util.append_str(colswhere1, 'column_name not like ''%\_ID'' escape ''\''', ' and ');
+        end if;
+        if util.csv_instr(exclude, y_token) > 0 then
+          exclude := util.csv_replace(exclude, y_token);
+          util.append_str(colswhere1, 'column_name not like ''%\_Y'' escape ''\''', ' and ');
+        end if;
+        if util.csv_instr(exclude, default_on_null_token) > 0 then
+          exclude := util.csv_replace(exclude, default_on_null_token);
+          util.append_str(colswhere1, q'[default_on_null='NO']', ' and ');
+        end if;
+        if util.csv_instr(exclude, identity_token) > 0 then
+          exclude := util.csv_replace(exclude, identity_token);
+          util.append_str(colswhere1, q'[identity_column='NO']', ' and ');
+        end if;
+        exclude := expand_column_lists(exclude);
+        if exclude is not null then
+          -- if any table-specific columns are in the list, remove them if they're
+          -- not for this table
+          exclude := remove_other_tables(exclude);
+          util.append_str(colswhere1, 'column_name not in ' || to_csv_inlist(exclude), ' and ');
+        end if;
       end if;
 
       -- ONLY option
-      if util.csv_instr(only, nullable_token) > 0 then
-        only := util.csv_replace(only, nullable_token);
-        util.append_str(colswhere, q'[nullable='Y']', ' AND ');
-      end if;
-      if util.csv_instr(only, default_value_token) > 0 then
-        only := util.csv_replace(only, default_value_token);
-        util.append_str(colswhere, 'data_default IS NOT NULL', ' AND ');
-      end if;
-      if util.csv_instr(only, lobs_token) > 0 then
-        only := util.csv_replace(only, lobs_token);
-        util.append_str(colswhere, 'data_type IN ' || to_csv_inlist(templates.lob_datatypes_list), ' AND ');
-      end if;
-      if util.csv_instr(only, code_token) > 0 then
-        only := util.csv_replace(only, code_token);
-        util.append_str(colswhere, 'column_name LIKE ''%\_CODE'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(only, id_token) > 0 then
-        only := util.csv_replace(only, id_token);
-        util.append_str(colswhere, 'column_name LIKE ''%\_ID'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(only, y_token) > 0 then
-        only := util.csv_replace(only, y_token);
-        util.append_str(colswhere, 'column_name LIKE ''%\_Y'' escape ''\''', ' AND ');
-      end if;
-      if util.csv_instr(only, virtual_token) > 0 then
-        only := util.csv_replace(only, virtual_token);
-        util.append_str(colswhere, q'[virtual_column='YES']', ' AND ');
-      end if;
-      if util.csv_instr(only, surrogate_key_token) > 0
-      and util.csv_replace(only, surrogate_key_token) is null
-      and surrogate_key_column (table_name => table_name) is null then
-        only := util.csv_replace(only, surrogate_key_token);
-        if only is null then
-          util.append_str(colswhere, '1=2'/*no surrogate key*/, ' AND ');
+      if only is not null then
+        if util.csv_instr(only, nullable_token) > 0 then
+          only := util.csv_replace(only, nullable_token);
+          util.append_str(colswhere2, q'[nullable='Y']', ' or ');
+        end if;
+        if util.csv_instr(only, default_value_token) > 0 then
+          only := util.csv_replace(only, default_value_token);
+          util.append_str(colswhere2, 'data_default is not null', ' or ');
+        end if;
+        if util.csv_instr(only, lobs_token) > 0 then
+          only := util.csv_replace(only, lobs_token);
+          util.append_str(colswhere2, 'data_type in ' || to_csv_inlist(templates.lob_datatypes_list), ' or ');
+        end if;
+        if util.csv_instr(only, code_token) > 0 then
+          only := util.csv_replace(only, code_token);
+          util.append_str(colswhere2, 'column_name like ''%\_CODE'' escape ''\''', ' or ');
+        end if;
+        if util.csv_instr(only, id_token) > 0 then
+          only := util.csv_replace(only, id_token);
+          util.append_str(colswhere2, 'column_name like ''%\_ID'' escape ''\''', ' or ');
+        end if;
+        if util.csv_instr(only, y_token) > 0 then
+          only := util.csv_replace(only, y_token);
+          util.append_str(colswhere2, 'column_name like ''%\_Y'' escape ''\''', ' or ');
+        end if;
+        if util.csv_instr(only, virtual_token) > 0 then
+          only := util.csv_replace(only, virtual_token);
+          util.append_str(colswhere2, q'[virtual_column='YES']', ' or ');
+        end if;
+        if util.csv_instr(only, surrogate_key_token) > 0
+        and util.csv_replace(only, surrogate_key_token) is null
+        and surrogate_key_column (table_name => table_name) is null then
+          only := util.csv_replace(only, surrogate_key_token);
+          if only is null then
+            util.append_str(colswhere2, '1=2'/*no surrogate key*/, ' or ');
+          end if;
+        end if;
+        if util.csv_instr(only, default_on_null_token) > 0 then
+          only := util.csv_replace(only, default_on_null_token);
+          util.append_str(colswhere2, q'[default_on_null='YES']', ' or ');
+        end if;
+        if util.csv_instr(only, identity_token) > 0 then
+          only := util.csv_replace(only, identity_token);
+          util.append_str(colswhere2, q'[identity_column='YES']', ' or ');
+        end if;
+        only := expand_column_lists(only);
+        if only is not null then
+          -- if any table-specific columns are in the list, remove them if they're
+          -- not for this table
+          only := remove_other_tables(only);
+          util.append_str(colswhere2, 'column_name in ' || to_csv_inlist(only), ' or ');
         end if;
       end if;
-      if util.csv_instr(only, default_on_null_token) > 0 then
-        only := util.csv_replace(only, default_on_null_token);
-        util.append_str(colswhere, q'[default_on_null='YES']', ' AND ');
-      end if;
-      if util.csv_instr(only, identity_token) > 0 then
-        only := util.csv_replace(only, identity_token);
-        util.append_str(colswhere, q'[identity_column='YES']', ' AND ');
-      end if;
-      only := expand_column_lists(only);
-      if only is not null then
-        -- if any table-specific columns are in the list, remove them if they're
-        -- not for this table
-        only := remove_other_tables(only);
-        util.append_str(colswhere, 'column_name IN ' || to_csv_inlist(only), ' AND ');
+
+      -- INCLUDING option
+      if include is not null then
+        -- if the table uses a surrogate key or identity, don't include ROWID
+        if util.csv_instr(include, rowid_token) > 0
+        and (identity_column (table_name => table_name) is not null
+          or surrogate_key_column (table_name => table_name) is not null)
+        then
+          include := util.csv_replace(include, rowid_token);
+        end if;
+        if include is not null then
+          -- if any table-specific columns are in the list, remove them if they're
+          -- not for this table
+          include := remove_other_tables(include);
+          pseudocolumns := include;
+        end if;
       end if;
 
-      ptn := csv_util_pkg.csv_to_array
-        (p_csv_line  => colptn
-        ,p_separator => '~');
+      ptn := apex_string.split(colptn,'~');
       for i in 1..ptn.count loop
         if ptn(i) like '%{%}' then
           -- we have found a targetted template
@@ -804,7 +823,11 @@ procedure evaluate_columns
       buf := cols(table_name      => table_name
                  ,template_arr    => tmp
                  ,sep             => sep
-                 ,cols_where      => colswhere
+                 ,cols_where      => '('
+                                  || nvl(colswhere1, '1=1')
+                                  || ') and ('
+                                  || nvl(colswhere2, '1=1')
+                                  || ')'
                  ,pseudocolumns   => pseudocolumns);
 
       if length(str) <= 4000 then
@@ -822,7 +845,7 @@ begin
 
   chunks := chunkerize
     (buf    => buf
-    ,tokens => t_str_array(columns_token, end_token));
+    ,tokens => apex_t_varchar2(columns_token, end_token));
 
   for i in 1..chunks.count loop
     if util.starts_with(chunks(i), columns_token) then
@@ -918,7 +941,7 @@ begin
 
   chunks := chunkerize
     (buf    => buf
-    ,tokens => t_str_array(if_token, else_token, endif_token));
+    ,tokens => apex_t_varchar2(if_token, else_token, endif_token));
 
   iteration := 0;
   idx := chunks.first;
@@ -1408,12 +1431,12 @@ begin
     ) loop
 
     gen
-      (template_name => 'TAPI_PACKAGE_SPEC'
+      (template_name => 'tapi_package_spec'
       ,table_name    => r.table_name
       ,raise_ddl_exceptions => false);
 
     gen
-      (template_name => 'TAPI_PACKAGE_BODY'
+      (template_name => 'tapi_package_body'
       ,table_name    => r.table_name
       ,raise_ddl_exceptions => false);
 

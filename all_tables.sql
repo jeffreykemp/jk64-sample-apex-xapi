@@ -1,5 +1,5 @@
-@tables/ERROR_MESSAGES.sql
-@tables/EVENT_TYPES.sql
-@tables/HOSTS.sql
-@tables/VENUES.sql
-@tables/EVENTS.sql
+@tables/error_messages.sql
+@tables/event_types.sql
+@tables/hosts.sql
+@tables/venues.sql
+@tables/events.sql

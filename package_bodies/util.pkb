@@ -151,6 +151,24 @@ end error_msg;
                                PUBLIC INTERFACE
 *******************************************************************************/
 
+procedure assert
+  (testcond  in boolean
+  ,assertion in varchar2
+  ,scope     in varchar2) is
+begin
+
+  if not testcond then
+
+    logger.log_permanent('Assertion failed: ' || assertion, scope);
+
+    raise_application_error(assertion_errcode,
+         'Sorry, system has encountered a problem - please notify Support (assertion failed: '
+      || assertion || ' in ' || scope || ')');
+
+  end if;
+
+end assert;
+
 -- Wrapper for apex set session value.
 -- WARNING: the new value will not be visible to the session immediately (i.e.
 -- you shouldn't use v() to examine the value after calling sv). It's best to
@@ -585,7 +603,7 @@ end val_datetime_range;
 
 procedure val_domain
   (val          in varchar2
-  ,valid_values in t_str_array
+  ,valid_values in apex_t_varchar2
   ,label        in varchar2 := null
   ,column_name  in varchar2 := null
   ) is
@@ -722,24 +740,6 @@ begin
   end if;
   return buf;
 end errors_list;
-
-procedure assert
-  (testcond  in boolean
-  ,assertion in varchar2
-  ,scope     in varchar2) is
-begin
-
-  if not testcond then
-
-    logger.log_permanent('Assertion failed: ' || assertion, scope);
-
-    raise_application_error(assertion_errcode,
-         'Sorry, system has encountered a problem - please notify Support (assertion failed: '
-      || assertion || ' in ' || scope || ')');
-
-  end if;
-
-end assert;
 
 procedure raise_error
   (err_msg in varchar2

@@ -206,7 +206,7 @@ procedure val_datetime_range
 -- validate against a list of values
 procedure val_domain
   (val          in varchar2
-  ,valid_values in t_str_array
+  ,valid_values in apex_t_varchar2
   ,label        in varchar2 := null
   ,column_name  in varchar2 := null);
 

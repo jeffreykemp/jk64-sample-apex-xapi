@@ -1,10 +1,11 @@
-BEGIN GENERATE.all_apis('event_types'); END;
+begin gen_tapis.all_tapis('event_types'); end;
 /
-BEGIN GENERATE.all_apis('hosts'); END;
+begin gen_tapis.all_tapis('hosts'); end;
 /
-BEGIN GENERATE.all_apis('venues'); END;
+begin gen_tapis.all_tapis('venues'); end;
 /
-BEGIN GENERATE.all_apis('events'); END;
+begin gen_tapis.all_tapis('events'); end;
 /
-BEGIN GENERATE.all_apis('emps'); END;
+begin gen_tapis.all_tapis('emps'); end;
 /
+@post_schema.sql

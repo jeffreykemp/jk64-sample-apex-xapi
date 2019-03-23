@@ -1,2 +1,2 @@
 -- run as sys; set OWNER to the target schema
-CREATE OR REPLACE CONTEXT SAMPLE_CTX USING &OWNER..SECURITY ACCESSED GLOBALLY;
+create or replace context sample_ctx using &owner..security accessed globally;

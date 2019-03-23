@@ -1,4 +1,4 @@
-COMMIT;
+commit;
 
 begin dbms_utility.compile_schema(user,false); end;
 /

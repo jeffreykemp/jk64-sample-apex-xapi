@@ -1,3 +1,3 @@
-@views/EVENT_TYPES_VW.sql
-@views/EVENTS_VW.sql
-@views/VENUES_VW.sql
+@views/event_types_vw.sql
+@views/events_vw.sql
+@views/venues_vw.sql
