@@ -98,6 +98,8 @@ procedure post_auth is
   sessionid varchar2(100) := v('APP_SESSION');
 begin
   dbms_session.set_identifier(app_user || ':' || sessionid);
+  logger.append_param(params, 'apex$session-app_user', sys_context('apex$session','app_user'));
+  logger.append_param(params, 'apex$session-session', sys_context('apex$session','session'));
   logger.log('START', scope, null, params);
 
   -- NOTE: do not call any code (e.g. views) which *use* the SYS_CONTEXT that is
@@ -107,6 +109,8 @@ begin
       (app_user  => app_user
       ,client_id => app_user || ':' || sessionid);
   end if;
+  
+  set_security_group (client_id => app_user || ':' || sessionid);
 
   logger.log('END', scope, null, params);
 exception
@@ -114,6 +118,40 @@ exception
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end post_auth;
+
+procedure set_security_group
+  (security_group_id in number := null
+  ,client_id         in varchar2 := null) is
+  scope     logger_logs.scope%type := scope_prefix || 'set_security_group';
+  params    logger.tab_param;
+begin
+  logger.append_param(params,'security_group_id',security_group_id);
+  logger.append_param(params,'client_id',client_id);
+  logger.log('START', scope, null, params);
+  
+  --TODO: check if user has access to the selected security group; or select one if it is null
+  
+  set_context
+    (attribute => 'security_group_id'
+    ,value     => 11111
+    ,client_id => client_id);
+
+  logger.log('END', scope, null, params);
+exception
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end set_security_group;
+
+function vpd_policy
+  (object_schema in varchar2
+  ,object_name in varchar2
+  ) return varchar2 is
+begin
+  return 'db$security_group_id='
+      || context_security_group_id
+      || q'[ or db$global_y='Y']';
+end vpd_policy;
 
 procedure disable_journal_trigger
   (trigger_name in varchar2

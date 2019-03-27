@@ -26,10 +26,10 @@ select e.event_id
           ,e.this_start_dt + case when e.this_start_dt = trunc(e.this_start_dt) then 0.99999 else 1/24 end) as this_end_dt
       ,et.calendar_css
       ,e.deleted_y
-      ,e.created_by
-      ,e.created_dt
-      ,e.last_updated_by
-      ,e.last_updated_dt
+      ,e.db$created_by
+      ,e.db$created_dt
+      ,e.db$last_updated_by
+      ,e.db$last_updated_dt
 from   (select e.*
               ,nvl(e.end_dt, e.start_dt) - e.start_dt duration_days
               ,case e.repeat

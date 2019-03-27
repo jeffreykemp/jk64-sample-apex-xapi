@@ -9,8 +9,8 @@ select vn.venue_id
        then substr(vn.map_position,instr(vn.map_position,',')+1)
        end as map_position_lng
       ,vn.deleted_y
-      ,vn.created_by
-      ,vn.created_dt
-      ,vn.last_updated_by
-      ,vn.last_updated_dt
+      ,vn.db$created_by
+      ,vn.db$created_dt
+      ,vn.db$last_updated_by
+      ,vn.db$last_updated_dt
 from   venues vn;

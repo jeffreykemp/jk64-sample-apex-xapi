@@ -4,9 +4,6 @@ create or replace package body deploy as
  2-DEC-2014 Jeffrey Kemp
 *******************************************************************************/
 
-journal_table_suffix constant varchar2(30) := '$JN';
-context_app_user     constant varchar2(100) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
-
 procedure msg(v in varchar2) is
 begin
   dbms_output.put_line(v);
@@ -218,9 +215,10 @@ begin
 end rename_constraint;
 
 procedure create_table
-  (table_name     in varchar2
-  ,table_ddl      in varchar2
-  ,add_audit_cols in boolean := true) is
+  (table_name        in varchar2
+  ,table_ddl         in varchar2
+  ,add_standard_cols in boolean := true
+  ,setup_vpd         in boolean := true) is
   -- warning: has sql injection vulnerability
 begin
   assert(table_name is not null, 'create_table: table_name cannot be null');
@@ -237,8 +235,11 @@ begin
         raise;
       end if;
   end;
-  if add_audit_cols then
-    deploy.add_audit_cols(table_name);
+  if add_standard_cols then
+    add_standard_columns(table_name, vpd => setup_vpd);
+  end if;
+  if setup_vpd then
+    add_vpd_policy(table_name);
   end if;
 end create_table;
 
@@ -554,41 +555,89 @@ begin
   return to_number(ret);
 end apex_major_version;
 
-procedure add_audit_cols (table_name in varchar2) is
+procedure add_standard_columns
+  (table_name in varchar2
+  ,vpd        in boolean := true) is
+/*
+Standard columns:
+  db$created_by        - user ID who inserted the record
+  db$created_dt        - date/time when record was inserted
+  db$last_updated_by   - user ID who last updated/inserted the record
+  db$last_updated_dt   - date/time when record was last updated/inserted
+  db$src_id            - ID of source record that this was a copy of
+  db$src_version_id    - version ID of source record that this was a copy of
+  db$security_group_id - security context for VPD
+  db$global_y          - if Y, the record should be visible across VPD contexts
+  db$version_id        - number incremented whenever record is updated (for lost update detection)
+*/
 begin
-  assert(table_name is not null, 'add_audit_cols: table_name cannot be null');
+  assert(table_name is not null, 'add_standard_columns: table_name cannot be null');
   add_column
     (table_name        => table_name
-    ,column_name       => 'created_by'
+    ,column_name       => 'db$created_by'
     ,column_definition => 'varchar2(100 char) default on null ' || context_app_user
     ,not_null_value    => context_app_user);
   add_column
     (table_name        => table_name
-    ,column_name       => 'created_dt'
+    ,column_name       => 'db$created_dt'
     ,column_definition => 'date default on null sysdate'
     ,not_null_value    => 'sysdate');
   add_column
     (table_name        => table_name
-    ,column_name       => 'last_updated_by'
+    ,column_name       => 'db$last_updated_by'
     ,column_definition => 'varchar2(100 char) default on null ' || context_app_user
     ,not_null_value    => context_app_user);
   add_column
     (table_name        => table_name
-    ,column_name       => 'last_updated_dt'
+    ,column_name       => 'db$last_updated_dt'
     ,column_definition => 'date default on null sysdate'
     ,not_null_value    => 'sysdate');
   add_column
     (table_name        => table_name
-    ,column_name       => 'version_id'
+    ,column_name       => 'db$src_id'
+    ,column_definition => 'integer');
+  add_column
+    (table_name        => table_name
+    ,column_name       => 'db$src_version_id'
+    ,column_definition => 'integer');
+  if vpd then
+    add_column
+      (table_name        => table_name
+      ,column_name       => 'db$security_group_id'
+      ,column_definition => 'integer default on null ' || security.context_security_group_id
+      ,not_null_value    => '1');
+    add_column
+      (table_name        => table_name
+      ,column_name       => 'db$global_y'
+      ,column_definition => 'varchar2(1)');
+  end if;
+  add_column
+    (table_name        => table_name
+    ,column_name       => 'db$version_id'
     ,column_definition => 'integer default on null 1'
     ,not_null_value    => '1');
   -- for audit columns that already existed, make sure their defaults are set
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify created_by default on null ' || context_app_user);
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify created_dt default on null sysdate');
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify last_updated_by default on null ' || context_app_user);
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify last_updated_dt default on null sysdate');
-  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify version_id default on null 1');
-end add_audit_cols;
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify db$created_by default on null ' || context_app_user);
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify db$created_dt default on null sysdate');
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify db$last_updated_by default on null ' || context_app_user);
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify db$last_updated_dt default on null sysdate');
+  exec_ddl('alter table ' || dbms_assert.simple_sql_name(table_name) || ' modify db$version_id default on null 1');
+end add_standard_columns;
+
+procedure add_vpd_policy (table_name in varchar2) is
+begin
+  sys.dbms_rls.add_policy
+    (object_name     => table_name
+    ,policy_name     => 'vpd_policy'
+    ,policy_function => 'security.vpd_policy'
+    ,update_check    => true
+    ,static_policy   => true);
+exception
+  when others then
+    if sqlcode != -28101 /*policy already exists*/ then
+      raise;
+    end if;
+end add_vpd_policy;
 
 procedure disable_constraints
   (table_name      in varchar2 := null

@@ -14,8 +14,8 @@ tapi_suffix         constant varchar2(30) := '$TAPI';
 lov_vw_suffix       constant varchar2(30) := '_VW';
 
 -- column lists
-audit_columns_list     constant varchar2(100) := 'CREATED_DT,CREATED_BY,LAST_UPDATED_DT,LAST_UPDATED_BY';
-generated_columns_list constant varchar2(100) := audit_columns_list||',VERSION_ID';
+audit_columns_list     constant varchar2(100) := 'DB$CREATED_DT,DB$CREATED_BY,DB$LAST_UPDATED_DT,DB$LAST_UPDATED_BY';
+generated_columns_list constant varchar2(200) := audit_columns_list||',DB$SECURITY_GROUP_ID,DB$GLOBAL_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$VERSION_ID';
 
 lob_datatypes_list     constant varchar2(100) := 'BLOB,BFILE,CLOB,NCLOB,XMLTYPE';
 
@@ -57,9 +57,9 @@ create or replace trigger <%trigger>
   before each row is
   begin
     if updating then
-      :new.last_updated_by := <%CONTEXT_APP_USER>;
-      :new.last_updated_dt := sysdate;
-      :new.version_id      := :old.version_id + 1;
+      :new.db$last_updated_by := <%CONTEXT_APP_USER>;
+      :new.db$last_updated_dt := sysdate;
+      :new.db$version_id      := :old.db$version_id + 1;
     end if;
   end before each row;
 
@@ -127,7 +127,7 @@ subtype t_row is cur%rowtype;
 type t_array is table of t_row index by binary_integer;
 
 type t_rv is record
-  (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... varchar2(4000)~
    #col#... <%table>.#col#%type{ID}~
    #col#... <%table>.#col#%type{LOB}~
@@ -214,14 +214,14 @@ C_#COL28#... constant varchar2(30) := '#COL#';~
 procedure lost_upd (rv in t_rv) is
   scope              logger_logs.scope%type := scope_prefix || 'lost_upd';
   params             logger.tab_param;
-  db_last_updated_by <%table>.last_updated_by%type;
-  db_last_updated_dt <%table>.last_updated_dt%type;
+  db_last_updated_by <%table>.db$last_updated_by%type;
+  db_last_updated_dt <%table>.db$last_updated_dt%type;
 begin
   append_params (params, rv);
   logger.log('START', scope, null, params);
 
-  select x.last_updated_by
-        ,x.last_updated_dt
+  select x.db$last_updated_by
+        ,x.db$last_updated_dt
   into   db_last_updated_by
         ,db_last_updated_dt
   from   <%table> x
@@ -263,7 +263,7 @@ procedure append_params
   (params in out logger.tab_param
   ,rv     in t_rv) is
 begin
-  <%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
   logger.append_param(params, 'rv.#col#',... rv.#col#);~
   logger.append_param(params, 'rv.#col#.len', dbms_lob.getlength(rv.#col#));{LOB}~
   <%END>
@@ -726,7 +726,7 @@ begin
   append_params(params, rv);
   logger.log('START', scope, null, params);
 
-  <%COLUMNS EXCLUDING AUDIT>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID>
   r.#col#... := rv.#col#;~
   r.#col#... := to_char(rv.#col#, util.date_format);{DATE}~
   r.#col#... := to_char(rv.#col#, util.datetime_format);{DATETIME}~
@@ -752,7 +752,7 @@ begin
   append_params(params, r);
   logger.log('START', scope, null, params);
 
-  <%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
   rv.#col#... := r.#col#;~
   rv.#col#... := util.date_val(r.#col#);{DATE}~
   rv.#col#... := util.datetime_val(r.#col#);{DATETIME}~
@@ -830,8 +830,13 @@ begin
   
   nr := r;
 
-  <%COLUMNS ONLY GENERATED,SURROGATE_KEY,IDENTITY,ROWID,DELETED_Y>
+  <%COLUMNS ONLY GENERATED,SURROGATE_KEY,IDENTITY,ROWID,DELETED_Y EXCLUDING DB$SRC_ID,DB$SRC_VERSION_ID>
   nr.#col#... := null;~
+  <%END>
+
+  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY>
+  nr.db$src_id         := r.#col#;
+  nr.db$src_version_id := r.db$version_id;~
   <%END>
 
   append_params(params, nr);
@@ -910,7 +915,7 @@ from <%table>;
 
 -- e.g. generate a t_row record; remove any columns not needed
 r := <%tapi>.t_row
-  (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... => null --#col#~
   ,<%END>);
 
@@ -930,7 +935,7 @@ end;
 
 -- e.g. put this in a Form Validation Process returning Error Text
 return <%tapi>.val (rv => <%tapi>.rvtype
-  (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... => :P1_#COL28#~
   ,<%END>));
 
@@ -940,7 +945,7 @@ declare
   r  <%tapi>.t_row;
 begin
   rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
      #col#... => :P1_#COL28#~
     ,<%END>);
   case
@@ -973,7 +978,7 @@ end;
 -- e.g. put this in an Interactive Grid validation "PL/SQL Function (returning Error
 -- Text)" For Created and Modified Rows
 <%tapi>.val (rv => <%tapi>.t_rv
-  (<%COLUMNS EXCLUDING AUDIT>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID>
    #col#... => :#COL#~
   ,<%END>));
 
@@ -983,7 +988,7 @@ declare
   rv <%tapi>.t_rv;
 begin
   rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
      #col#... => :#COL#~
     ,<%END>);    
   case :APEX$ROW_STATUS

@@ -8,7 +8,9 @@ create or replace package deploy as
           never be passed as parameters to these functions or procedures.
 *******************************************************************************/
 
-MVIEW_DEFAULT_OPTIONS constant varchar2(1000) := q'[BUILD DEFERRED REFRESH COMPLETE ON DEMAND]';
+journal_table_suffix      constant varchar2(30) := '$JN';
+context_app_user          constant varchar2(200) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
+mview_default_options     constant varchar2(1000) := q'[build deferred refresh complete on demand]';
 
 procedure exec_ddl (ddl in varchar2);
 
@@ -26,9 +28,10 @@ function constraint_exists (constraint_name in varchar2) return boolean;
 function job_exists (job_name in varchar2) return boolean;
 
 procedure create_table
-  (table_name     in varchar2
-  ,table_ddl      in varchar2
-  ,add_audit_cols in boolean := true);
+  (table_name        in varchar2
+  ,table_ddl         in varchar2
+  ,add_standard_cols in boolean := true
+  ,setup_vpd         in boolean := true);
 
 procedure create_mview
   (mview_name      in varchar2
@@ -134,7 +137,11 @@ procedure drop_all_jobs;
 -- returns Apex version, e.g. 4, 5, etc.
 function apex_major_version return integer;
 
-procedure add_audit_cols (table_name in varchar2);
+procedure add_standard_columns
+  (table_name in varchar2
+  ,vpd        in boolean := true);
+
+procedure add_vpd_policy (table_name in varchar2);
 
 procedure disable_constraints
   (table_name      in varchar2 := null   -- NULL means all enabled constraints

@@ -37,8 +37,6 @@ surrogate_key_token    constant varchar2(30) := 'SURROGATE_KEY';
 identity_token         constant varchar2(30) := 'IDENTITY';
 soft_delete_token      constant varchar2(30) := 'SOFT_DELETE';
 
-context_app_user       constant varchar2(100) := q'[coalesce(sys_context('apex$session','app_user'),sys_context('userenv','session_user'))]';
-
 -- infinite loop protection
 maxiterations          constant integer := 10000;
 
@@ -394,19 +392,22 @@ and    hidden_column = 'NO'
       -- 2. see if a template exists for the column name
       elsif template_arr.exists(upper(colname(i))) then
         tmp := template_arr(upper(colname(i)));
-      -- 3. if it's a surrogate key column, see if a template exists for surrogate key
+      -- 3. if it's an identity column, see if a template exists for an identity
+      elsif colname(i) = identity_column(table_name) and template_arr.exists(identity_token) then
+        tmp := template_arr(identity_token);
+      -- 4. if it's a surrogate key column, see if a template exists for surrogate key
       elsif colname(i) = surkey_column and template_arr.exists(surrogate_key_token) then
         tmp := template_arr(surrogate_key_token);
       else
-        -- 4. see if a template exists for the column's data type
+        -- 5. see if a template exists for the column's data type
         datatype(i) := datatype_code(data_type => datatype(i), column_name => colname(i));
         if template_arr.exists(datatype(i)) then
           tmp := template_arr(datatype(i));
-        -- 5. if it's a LOB type, see if there is a LOB template
+        -- 6. if it's a LOB type, see if there is a LOB template
         elsif datatype(i) is not null and util.csv_instr(templates.lob_datatypes_list, datatype(i)) > 0
         and template_arr.exists(lob_token) then
           tmp := template_arr(lob_token);
-        -- 6. see if a catch-all template exists
+        -- 7. see if a catch-all template exists
         elsif template_arr.exists('*') then
           tmp := template_arr('*');
         end if;
@@ -1097,7 +1098,7 @@ begin
     ph := placeholders;
 
     ph('<%CONTEXT>')   := security.ctx;
-    ph('<%CONTEXT_APP_USER>') := context_app_user;
+    ph('<%CONTEXT_APP_USER>') := deploy.context_app_user;
     ph('<%Entities>')  := util.user_friendly_label(table_name); -- assume tables are named in the plural
     ph('<%entities>')  := lower(util.user_friendly_label(table_name));
     ph('<%Entity>')    := util.user_friendly_label(table_name, inflect => util.singular);
