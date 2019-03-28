@@ -19,9 +19,11 @@ procedure post_auth;
 -- switch to a security group; app_user must have a current role for the given security group
 -- if parameter is null, the user's last security group is selected, or the one last provisioned
 -- if user doesn't have access an exception is raised
-procedure set_security_group
-  (security_group_id in number := null
-  ,client_id         in varchar2 := null);
+procedure set_security_group (security_group_id in number := null);
+
+function has_role (role_code in varchar2) return boolean;
+
+function has_any_role return boolean;
 
 function vpd_policy
   (object_schema in varchar2

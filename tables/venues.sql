@@ -4,7 +4,7 @@ create table #name#
   ,name         varchar2 (500 char) not null
   ,map_position varchar2 (100 char)
   ,deleted_y    varchar2(1)
-  )]');
+  )]', vpd => true);
 end;
 /
 

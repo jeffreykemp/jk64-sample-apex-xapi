@@ -43,15 +43,6 @@ function get_ordered_params(in_object_type in varchar2, in_object_name in varcha
 function get_lov (in_object_type in varchar2,in_object_name in varchar2,in_params in t_param) return t_lov;
 function generate (in_object_type in varchar2,in_object_name in varchar2,in_params in t_param) return clob;
 
--- list all the primary key columns for the table
-function pk_cols (table_name in varchar2) return varchar2 result_cache;
-
--- return the column name for a surrogate key column associated with a sequence (by naming convention)
--- e.g. EMP_ID is single-column primary key and sequence EMP_ID_SEQ exists
-function surrogate_key_column (table_name in varchar2) return varchar2 result_cache;
--- return the sequence name for a surrogate key column
-function surrogate_key_sequence (table_name in varchar2) return varchar2 result_cache;
-
 -- Evaluate the given template, attempt to execute it
 -- template_name - may be the name of a template (taken from the default
 --                 TEMPLATES package) or a template from a specified alternate

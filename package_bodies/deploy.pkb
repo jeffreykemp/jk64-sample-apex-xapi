@@ -4,6 +4,9 @@ create or replace package body deploy as
  2-DEC-2014 Jeffrey Kemp
 *******************************************************************************/
 
+vpd_policy_name     constant varchar2(30) := 'vpd_policy';
+vpd_policy_function constant varchar2(100) := 'security.vpd_policy';
+
 procedure msg(v in varchar2) is
 begin
   dbms_output.put_line(v);
@@ -22,6 +25,7 @@ end assert;
 procedure exec_ddl (ddl in varchar2) is
 begin
   assert(ddl is not null, 'exec_ddl(1): ddl cannot be null');
+  dbms_output.put_line(ddl);
   execute immediate ddl;
 end exec_ddl;
 
@@ -218,16 +222,19 @@ procedure create_table
   (table_name        in varchar2
   ,table_ddl         in varchar2
   ,add_standard_cols in boolean := true
-  ,setup_vpd         in boolean := true) is
+  ,vpd               in boolean := false) is
   -- warning: has sql injection vulnerability
 begin
   assert(table_name is not null, 'create_table: table_name cannot be null');
   assert(table_ddl is not null, 'create_table: table_ddl cannot be null');
   assert(instr(lower(table_ddl),'#name#') > 0, 'create_table: table_ddl should use #NAME# or #name# for table name');
   begin
-    exec_ddl(replace(replace(table_ddl
+    exec_ddl(replace(replace(replace(replace( table_ddl
       ,'#NAME#',dbms_assert.simple_sql_name(table_name))
-      ,'#name#',lower(dbms_assert.simple_sql_name(table_name))));
+      ,'#name#',lower(dbms_assert.simple_sql_name(table_name)))
+      ,'<%CONTEXT_APP_USER>',context_app_user)
+      ,'<%SECURITY_GROUP_ID>',security.context_security_group_id)
+      );
     msg('Table created: ' || table_name);
   exception
     when others then
@@ -236,9 +243,9 @@ begin
       end if;
   end;
   if add_standard_cols then
-    add_standard_columns(table_name, vpd => setup_vpd);
+    add_standard_columns(table_name, vpd => vpd);
   end if;
-  if setup_vpd then
+  if vpd then
     add_vpd_policy(table_name);
   end if;
 end create_table;
@@ -557,18 +564,22 @@ end apex_major_version;
 
 procedure add_standard_columns
   (table_name in varchar2
-  ,vpd        in boolean := true) is
+  ,vpd        in boolean := false) is
 /*
 Standard columns:
   db$created_by        - user ID who inserted the record
   db$created_dt        - date/time when record was inserted
   db$last_updated_by   - user ID who last updated/inserted the record
   db$last_updated_dt   - date/time when record was last updated/inserted
+  db$version_id        - number incremented whenever record is updated (for lost update detection)
+  
+The following are added if the table has a surrogate key or identity column PK:
   db$src_id            - ID of source record that this was a copy of
   db$src_version_id    - version ID of source record that this was a copy of
+
+The following are added if the table needs to support VPD:
   db$security_group_id - security context for VPD
   db$global_y          - if Y, the record should be visible across VPD contexts
-  db$version_id        - number incremented whenever record is updated (for lost update detection)
 */
 begin
   assert(table_name is not null, 'add_standard_columns: table_name cannot be null');
@@ -592,14 +603,17 @@ begin
     ,column_name       => 'db$last_updated_dt'
     ,column_definition => 'date default on null sysdate'
     ,not_null_value    => 'sysdate');
-  add_column
-    (table_name        => table_name
-    ,column_name       => 'db$src_id'
-    ,column_definition => 'integer');
-  add_column
-    (table_name        => table_name
-    ,column_name       => 'db$src_version_id'
-    ,column_definition => 'integer');
+  if identity_column(table_name) is not null
+  or surrogate_key_column(table_name) is not null then
+    add_column
+      (table_name        => table_name
+      ,column_name       => 'db$src_id'
+      ,column_definition => 'integer');
+    add_column
+      (table_name        => table_name
+      ,column_name       => 'db$src_version_id'
+      ,column_definition => 'integer');
+  end if;
   if vpd then
     add_column
       (table_name        => table_name
@@ -628,8 +642,8 @@ procedure add_vpd_policy (table_name in varchar2) is
 begin
   sys.dbms_rls.add_policy
     (object_name     => table_name
-    ,policy_name     => 'vpd_policy'
-    ,policy_function => 'security.vpd_policy'
+    ,policy_name     => vpd_policy_name
+    ,policy_function => vpd_policy_function
     ,update_check    => true
     ,static_policy   => true);
 exception
@@ -638,6 +652,18 @@ exception
       raise;
     end if;
 end add_vpd_policy;
+
+procedure drop_vpd_policy (table_name in varchar2) is
+begin
+  sys.dbms_rls.drop_policy
+    (object_name => table_name
+    ,policy_name => vpd_policy_name);
+exception
+  when others then
+    if sqlcode != -28102 /*policy does not exist*/ then
+      raise;
+    end if;
+end drop_vpd_policy;
 
 procedure disable_constraints
   (table_name      in varchar2 := null
@@ -809,6 +835,70 @@ begin
     dbms_output.put_line(initcap(r.attribute) || '(' || r.line || ',' || r.position || '): ' || r.text);
   end loop;
 end dbms_output_errors;
+
+procedure get_surrogate_key
+  (table_name    in varchar2
+  ,column_name   out varchar2
+  ,sequence_name out varchar2
+  ) is
+begin
+  -- check to see if there is a surrogate key with a corresponding sequence
+  -- e.g. EMP_ID would have sequence EMP_ID_SEQ
+  -- used for assigning ID from sequence
+  select cc.column_name
+        ,s.sequence_name
+  into   column_name
+        ,sequence_name
+  from   user_constraints c
+  join   user_cons_columns cc
+  on     c.constraint_name = cc.constraint_name
+  join   user_sequences s
+  on     s.sequence_name = cc.column_name||'_SEQ'
+  where  c.table_name = upper(get_surrogate_key.table_name)
+  and    c.constraint_type = 'P';
+exception
+  when no_data_found then
+    null;
+  when too_many_rows then
+    column_name := null;
+    sequence_name := null;
+end get_surrogate_key;
+
+function surrogate_key_column (table_name in varchar2) return varchar2 result_cache is
+  surkey_col  varchar2(30);
+  surkey_seq  varchar2(30);
+begin
+  get_surrogate_key
+    (table_name    => table_name
+    ,column_name   => surkey_col
+    ,sequence_name => surkey_seq);
+  return surkey_col;
+end surrogate_key_column;
+
+function surrogate_key_sequence (table_name in varchar2) return varchar2 result_cache is
+  surkey_col  varchar2(30);
+  surkey_seq  varchar2(30);
+begin
+  get_surrogate_key
+    (table_name    => table_name
+    ,column_name   => surkey_col
+    ,sequence_name => surkey_seq);
+  return surkey_seq;
+end surrogate_key_sequence;
+
+function identity_column (table_name in varchar2) return varchar2 result_cache is
+  o_col varchar2(30);
+begin
+  select listagg(c.column_name,',') within group (order by c.column_id)
+  into   o_col
+  from   user_tab_columns c
+  where  c.table_name = upper(identity_column.table_name)
+  and    c.identity_column = 'YES';
+  return o_col;
+exception
+  when no_data_found then
+    return null;
+end identity_column;
 
 end deploy;
 /

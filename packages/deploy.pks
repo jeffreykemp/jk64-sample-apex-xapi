@@ -31,7 +31,7 @@ procedure create_table
   (table_name        in varchar2
   ,table_ddl         in varchar2
   ,add_standard_cols in boolean := true
-  ,setup_vpd         in boolean := true);
+  ,vpd               in boolean := false);
 
 procedure create_mview
   (mview_name      in varchar2
@@ -139,9 +139,11 @@ function apex_major_version return integer;
 
 procedure add_standard_columns
   (table_name in varchar2
-  ,vpd        in boolean := true);
+  ,vpd        in boolean := false);
 
 procedure add_vpd_policy (table_name in varchar2);
+
+procedure drop_vpd_policy (table_name in varchar2);
 
 procedure disable_constraints
   (table_name      in varchar2 := null   -- NULL means all enabled constraints
@@ -176,5 +178,18 @@ function invalid_object_count (object_type in varchar2 := null) return number;
 procedure dbms_output_errors
   (object_type in varchar2 := null
   ,object_name in varchar2 := null);
+
+-- return the column name for a surrogate key column associated with a sequence (by naming convention)
+-- e.g. EMP_ID is single-column primary key and sequence EMP_ID_SEQ exists
+procedure get_surrogate_key
+  (table_name    in varchar2
+  ,column_name   out varchar2
+  ,sequence_name out varchar2
+  );
+function surrogate_key_column (table_name in varchar2) return varchar2 result_cache;
+-- return the sequence name for a surrogate key column
+function surrogate_key_sequence (table_name in varchar2) return varchar2 result_cache;
+
+function identity_column (table_name in varchar2) return varchar2 result_cache;
 
 end deploy;

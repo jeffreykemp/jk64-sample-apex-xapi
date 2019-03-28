@@ -11,6 +11,16 @@ trigger_disabled constant varchar2(30) := 'DISABLED';
 insufficient_privileges exception;
 pragma exception_init (insufficient_privileges, -01031);
 
+function get_app_user return varchar2 is
+begin
+  return coalesce(sys_context('apex$session','app_user'), v('APP_USER'));
+end get_app_user;
+
+function get_app_session return varchar2 is
+begin
+  return coalesce(sys_context('apex$session','app_session'), v('APP_SESSION'));
+end get_app_session;
+
 procedure set_context
   (attribute in varchar2
   ,value     in varchar2
@@ -94,23 +104,27 @@ end init_db_session;
 procedure post_auth is
   scope     logger_logs.scope%type := scope_prefix || 'post_auth';
   params    logger.tab_param;
-  app_user  varchar2(500) := v('APP_USER');
-  sessionid varchar2(100) := v('APP_SESSION');
+  app_user    varchar2(500);
+  app_session varchar2(100);
 begin
-  dbms_session.set_identifier(app_user || ':' || sessionid);
+  app_user    := get_app_user;
+  app_session := get_app_session;
+  if app_user is not null and app_session is not null then
+    dbms_session.set_identifier(app_user || ':' || app_session);
+  end if;
   logger.append_param(params, 'apex$session-app_user', sys_context('apex$session','app_user'));
   logger.append_param(params, 'apex$session-session', sys_context('apex$session','session'));
   logger.log('START', scope, null, params);
-
+  
   -- NOTE: do not call any code (e.g. views) which *use* the SYS_CONTEXT that is
   -- setup by this code - we can SET the context variables, but we can't see them yet
   if app_user is not null then
     init_db_session
       (app_user  => app_user
-      ,client_id => app_user || ':' || sessionid);
+      ,client_id => app_user || ':' || app_session);
   end if;
   
-  set_security_group (client_id => app_user || ':' || sessionid);
+  set_security_group;
 
   logger.log('END', scope, null, params);
 exception
@@ -119,22 +133,41 @@ exception
     raise;
 end post_auth;
 
-procedure set_security_group
-  (security_group_id in number := null
-  ,client_id         in varchar2 := null) is
+procedure set_security_group (security_group_id in number := null) is
   scope     logger_logs.scope%type := scope_prefix || 'set_security_group';
   params    logger.tab_param;
+  app_user    varchar2(500);
+  app_session varchar2(100);
+  cursor cur
+    (app_user          in varchar2
+    ,security_group_id in number) is
+    select ur.security_group_id
+    from   user_roles ur
+    where  ur.app_user = cur.app_user
+    and    (ur.security_group_id = cur.security_group_id or cur.security_group_id is null)
+    and    ur.deleted_y is null
+    order by ur.last_login_dt desc;
+  r cur%rowtype;
 begin
   logger.append_param(params,'security_group_id',security_group_id);
-  logger.append_param(params,'client_id',client_id);
   logger.log('START', scope, null, params);
   
-  --TODO: check if user has access to the selected security group; or select one if it is null
+  app_user    := get_app_user;
+  app_session := get_app_session;
+  
+  --check if user has access to the selected security group; or select one if it is null
+  open cur (app_user, security_group_id);
+  fetch cur into r;
+  close cur;
+  
+  if r.security_group_id is null and security_group_id is not null then
+    raise_application_error(-20000, 'user does not have access to security group (' || app_user || ',' || security_group_id || ')');
+  end if;
   
   set_context
     (attribute => 'security_group_id'
-    ,value     => 11111
-    ,client_id => client_id);
+    ,value     => r.security_group_id
+    ,client_id => app_user || ':' || app_session);
 
   logger.log('END', scope, null, params);
 exception
@@ -142,6 +175,64 @@ exception
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end set_security_group;
+
+function has_role (role_code in varchar2) return boolean is
+  scope     logger_logs.scope%type := scope_prefix || 'has_role';
+  params    logger.tab_param;
+  app_user  varchar2(500);
+  dummy number;
+begin
+  logger.append_param(params,'role_code',role_code);
+  logger.log('START', scope, null, params);
+  
+  app_user := get_app_user;
+  
+  select 1 into dummy
+  from  user_roles ur
+  where ur.app_user = has_role.app_user
+  and   (ur.role_code in (has_role.role_code,'ADMIN')
+         or
+         ur.role_code = 'OPERATOR' and has_role.role_code = 'REPORTING')
+  and   ur.deleted_y is null
+  and rownum = 1;
+
+  logger.log('END', scope, null, params);
+  return true;
+exception
+  when no_data_found then
+    logger.log('END [no_data_found]', scope, null, params);
+    return false;
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end has_role;
+
+function has_any_role return boolean is
+  scope     logger_logs.scope%type := scope_prefix || 'has_any_role';
+  params    logger.tab_param;
+  app_user  varchar2(500);
+  dummy number;
+begin
+  logger.log('START', scope, null, params);
+  
+  app_user := get_app_user;
+  
+  select 1 into dummy
+  from  user_roles ur
+  where ur.app_user = has_any_role.app_user
+  and   ur.deleted_y is null
+  and rownum = 1;
+
+  logger.log('END', scope, null, params);
+  return true;
+exception
+  when no_data_found then
+    logger.log('END [no_data_found]', scope, null, params);
+    return false;
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end has_any_role;
 
 function vpd_policy
   (object_schema in varchar2

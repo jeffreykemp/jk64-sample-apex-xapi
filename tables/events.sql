@@ -12,7 +12,7 @@ create table #name#
   ,repeat_interval number default on null 1
   ,repeat_until    date
   ,deleted_y       varchar2(1)
-  )]');
+  )]', vpd => true);
 end;
 /
 

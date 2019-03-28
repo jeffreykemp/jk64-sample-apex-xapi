@@ -10,7 +10,7 @@ create table #name#
   ,bar_ts        timestamp(6)
   ,life_history  clob
   ,deleted_y     varchar2(1)
-  )]');
+  )]', vpd => true);
 end;
 /
 

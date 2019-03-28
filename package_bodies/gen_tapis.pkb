@@ -176,83 +176,6 @@ exception
     raise;
 end pk_cols;
 
-procedure get_surrogate_key
-  (table_name    in varchar2
-  ,column_name   out varchar2
-  ,sequence_name out varchar2
-  ) is
-  scope  logger_logs.scope%type := scope_prefix || 'get_surrogate_key';
-  params logger.tab_param;
-begin
-  logger.append_param(params, 'table_name', table_name);
-  logger.log('START', scope, null, params);
-
-  -- check to see if there is a surrogate key with a corresponding sequence
-  -- e.g. EMP_ID would have sequence EMP_ID_SEQ
-  -- used for assigning ID from sequence
-  begin
-    select cc.column_name
-          ,s.sequence_name
-    into   column_name
-          ,sequence_name
-    from   user_constraints c
-    join   user_cons_columns cc
-    on     c.constraint_name = cc.constraint_name
-    join   user_sequences s
-    on     s.sequence_name = cc.column_name||'_SEQ'
-    where  c.table_name = upper(get_surrogate_key.table_name)
-    and    c.constraint_type = 'P';
-  exception
-    when no_data_found then
-      null;
-    when too_many_rows then
-      column_name := null;
-      sequence_name := null;
-  end;
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end get_surrogate_key;
-
-function surrogate_key_column (table_name in varchar2) return varchar2 result_cache is
-  surkey_col  varchar2(30);
-  surkey_seq  varchar2(30);
-begin
-  get_surrogate_key
-    (table_name    => table_name
-    ,column_name   => surkey_col
-    ,sequence_name => surkey_seq);
-  return surkey_col;
-end surrogate_key_column;
-
-function surrogate_key_sequence (table_name in varchar2) return varchar2 result_cache is
-  surkey_col  varchar2(30);
-  surkey_seq  varchar2(30);
-begin
-  get_surrogate_key
-    (table_name    => table_name
-    ,column_name   => surkey_col
-    ,sequence_name => surkey_seq);
-  return surkey_seq;
-end surrogate_key_sequence;
-
-function identity_column (table_name in varchar2) return varchar2 result_cache is
-  o_col varchar2(30);
-begin
-  select listagg(c.column_name,',') within group (order by c.column_id)
-  into   o_col
-  from   user_tab_columns c
-  where  c.table_name = upper(identity_column.table_name)
-  and    c.identity_column = 'YES';
-  return o_col;
-exception
-  when no_data_found then
-    return null;
-end identity_column;
-
 function datatype_code (data_type in varchar2, column_name in varchar2) return varchar2 is
 begin
   return case
@@ -376,7 +299,7 @@ and    hidden_column = 'NO'
       maxcolnamelen := greatest(length(colname(i)), nvl(maxcolnamelen,0));
     end loop;
 
-    get_surrogate_key
+    deploy.get_surrogate_key
       (table_name    => table_name
       ,column_name   => surkey_column
       ,sequence_name => surkey_sequence);
@@ -393,7 +316,7 @@ and    hidden_column = 'NO'
       elsif template_arr.exists(upper(colname(i))) then
         tmp := template_arr(upper(colname(i)));
       -- 3. if it's an identity column, see if a template exists for an identity
-      elsif colname(i) = identity_column(table_name) and template_arr.exists(identity_token) then
+      elsif colname(i) = deploy.identity_column(table_name) and template_arr.exists(identity_token) then
         tmp := template_arr(identity_token);
       -- 4. if it's a surrogate key column, see if a template exists for surrogate key
       elsif colname(i) = surkey_column and template_arr.exists(surrogate_key_token) then
@@ -628,7 +551,7 @@ procedure evaluate_columns
       buf := util.csv_replace(buf, pk_token, pk_cols(table_name));
     end if;
     if util.csv_instr(buf, surrogate_key_token) > 0 then
-      buf := util.csv_replace(buf, surrogate_key_token, surrogate_key_column(table_name));
+      buf := util.csv_replace(buf, surrogate_key_token, deploy.surrogate_key_column(table_name));
     end if;
     return buf;
   end expand_column_lists;
@@ -765,7 +688,7 @@ procedure evaluate_columns
         end if;
         if util.csv_instr(only, surrogate_key_token) > 0
         and util.csv_replace(only, surrogate_key_token) is null
-        and surrogate_key_column (table_name => table_name) is null then
+        and deploy.surrogate_key_column (table_name => table_name) is null then
           only := util.csv_replace(only, surrogate_key_token);
           if only is null then
             util.append_str(colswhere2, '1=2'/*no surrogate key*/, ' or ');
@@ -792,8 +715,8 @@ procedure evaluate_columns
       if include is not null then
         -- if the table uses a surrogate key or identity, don't include ROWID
         if util.csv_instr(include, rowid_token) > 0
-        and (identity_column (table_name => table_name) is not null
-          or surrogate_key_column (table_name => table_name) is not null)
+        and (deploy.identity_column (table_name => table_name) is not null
+          or deploy.surrogate_key_column (table_name => table_name) is not null)
         then
           include := util.csv_replace(include, rowid_token);
         end if;
@@ -919,7 +842,7 @@ procedure evaluate_ifs
     else
       case
       when if_spec = rowid_token then
-        res := surrogate_key_column (table_name => table_name) is null;
+        res := deploy.surrogate_key_column (table_name => table_name) is null;
       when if_spec = lobs_token then
         res := lobs_exist (table_name => table_name);
       when if_spec = soft_delete_token then
@@ -1097,7 +1020,7 @@ begin
   
     ph := placeholders;
 
-    ph('<%CONTEXT>')   := security.ctx;
+    ph('<%CONTEXT>')          := security.ctx;
     ph('<%CONTEXT_APP_USER>') := deploy.context_app_user;
     ph('<%Entities>')  := util.user_friendly_label(table_name); -- assume tables are named in the plural
     ph('<%entities>')  := lower(util.user_friendly_label(table_name));
