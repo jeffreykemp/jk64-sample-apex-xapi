@@ -8,8 +8,10 @@ templates_package      constant varchar2(30) := 'TEMPLATES';
 -- structural tokens
 template_token         constant varchar2(30) := '<%TEMPLATE ';
 end_template_token     constant varchar2(30) := '<%END TEMPLATE>';
+foreach_token          constant varchar2(30) := '<%FOREACH ';
+end_foreach_token      constant varchar2(30) := '<%END FOREACH>';
 columns_token          constant varchar2(30) := '<%COLUMNS';
-end_token              constant varchar2(30) := '<%END>';
+end_columns_token      constant varchar2(30) := '<%END>';
 if_token               constant varchar2(30) := '<%IF ';
 else_token             constant varchar2(30) := '<%ELSE>';
 endif_token            constant varchar2(30) := '<%END IF>';
@@ -44,10 +46,11 @@ maxiterations          constant integer := 10000;
 maxlen_apex            constant integer := 4000;
 
 --oddgen parameters
-oddgen_gen_tapi        constant varchar2(100) := 'Generate Table API?';
 oddgen_execute         constant varchar2(100) := 'Execute?';
 oddgen_jnl_table       constant varchar2(100) := 'Create/Alter Journal Table?';
 oddgen_jnl_trigger     constant varchar2(100) := 'Create Journal Trigger?';
+oddgen_gen_tapi        constant varchar2(100) := 'Generate Table API?';
+oddgen_apex_page_id    constant varchar2(100) := 'Generate Sample code - APEX Page ID';
 
 type str_array       is table of varchar2(32767) index by binary_integer;
 type num_array       is table of number          index by binary_integer;
@@ -769,14 +772,14 @@ begin
 
   chunks := chunkerize
     (buf    => buf
-    ,tokens => apex_t_varchar2(columns_token, end_token));
+    ,tokens => apex_t_varchar2(columns_token, end_columns_token));
 
   for i in 1..chunks.count loop
     if util.starts_with(chunks(i), columns_token) then
       chunks(i) := util.replace_prefix(chunks(i), columns_token);
       chunks(i) := evaluate_column_spec (str => chunks(i));
-    elsif util.starts_with(chunks(i), end_token) then
-      chunks(i) := util.replace_prefix(chunks(i), end_token);
+    elsif util.starts_with(chunks(i), end_columns_token) then
+      chunks(i) := util.replace_prefix(chunks(i), end_columns_token);
     end if;
   end loop;
 
@@ -883,7 +886,7 @@ begin
           if util.starts_with(chunks(chunks.next(idx)), else_token) then
             chunks.delete(chunks.next(idx));
           elsif util.starts_with(chunks(chunks.next(idx)), if_token) then
-            raise_application_error(-20000, 'Sorry, nested $IFs are not supported');
+            raise_application_error(-20000, 'Sorry, nested %IFs are not supported');
           end if;
         end if;
       else
@@ -895,7 +898,7 @@ begin
         if util.starts_with(chunks(chunks.next(idx)), else_token) then
           raise_application_error(-20000, 'Unexpected ' || else_token);
         elsif util.starts_with(chunks(chunks.next(idx)), if_token) then
-          raise_application_error(-20000, 'Sorry, nested $IFs are not supported');
+          raise_application_error(-20000, 'Sorry, nested %IFs are not supported');
         end if;
       end if;
     elsif util.starts_with(chunks(idx), endif_token) then
@@ -920,6 +923,94 @@ exception
     logger.log_error('Unhandled Exception', scope, null, params);
     raise;
 end evaluate_ifs;
+
+procedure evaluate_foreach
+  (table_name in varchar2
+  ,buf        in out nocopy clob) is
+  scope  logger_logs.scope%type := scope_prefix || 'evaluate_foreach';
+  params logger.tab_param;
+  chunks str_array;
+
+  function evaluate_foreach_spec (str in varchar2) return varchar2 is
+    foreach_spec varchar2(4000);
+    foreach_body varchar2(32767);
+    buf          varchar2(32767);
+  begin
+    util.split_str
+      (str   => str
+      ,delim => '>'
+      ,lhs   => foreach_spec
+      ,rhs   => foreach_body);
+      
+    case trim(upper(foreach_spec))
+    when 'PARENT' then
+    
+      for r in (
+        select constraint_name
+              ,fk_column_name
+              ,parent_table
+        from (
+          select uc.constraint_name
+                ,ucc.column_name as fk_column_name
+                ,count(distinct ucc.column_name) over (partition by uc.constraint_name) as count_fk_columns
+                ,rc.table_name as parent_table
+          from   user_constraints uc
+          join   user_cons_columns ucc on ucc.constraint_name = uc.constraint_name
+          join   user_constraints rc on rc.constraint_name = uc.r_constraint_name
+          where  uc.constraint_type = 'R'
+          and    uc.table_name = upper(evaluate_foreach.table_name)
+        )
+        where count_fk_columns = 1
+        order by constraint_name
+        ) loop
+
+        buf := buf
+          || replace(replace(replace(replace(replace(replace(foreach_body
+               ,'<%fk_column>',     lower(r.fk_column_name))
+               ,'<%FK_COLUMN>',     upper(r.fk_column_name))
+               ,'<%fk_constraint>', lower(r.constraint_name))
+               ,'<%FK_CONSTRAINT>', upper(r.constraint_name))
+               ,'<%parent_table>',  lower(r.parent_table))
+               ,'<%PARENT_TABLE>',  upper(r.parent_table))
+               ;
+      
+      end loop;
+
+    else
+      raise_application_error(-20000, 'Unrecognised %FOREACH: "' || foreach_spec);
+    end case;
+    
+    return buf;
+  end evaluate_foreach_spec;
+begin
+  logger.append_param(params, 'table_name', table_name);
+  logger.log('START', scope, null, params);
+
+  chunks := chunkerize
+    (buf    => buf
+    ,tokens => apex_t_varchar2(foreach_token, end_foreach_token));
+
+  for i in 1..chunks.count loop
+dbms_output.put_line('chunk#'||i||' BEFORE='||substr(chunks(i),1,100));
+    if util.starts_with(chunks(i), foreach_token) then
+      chunks(i) := util.replace_prefix(chunks(i), foreach_token);
+      chunks(i) := evaluate_foreach_spec(chunks(i));
+    elsif util.starts_with(chunks(i), end_foreach_token) then
+      chunks(i) := util.replace_prefix(chunks(i), end_foreach_token);
+    end if;
+dbms_output.put_line('chunk#'||i||' AFTER='||substr(chunks(i),1,100));
+  end loop;
+
+  assemble_chunks
+    (chunks => chunks
+    ,buf    => buf);
+
+  logger.log('END', scope, null, params);
+exception
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end evaluate_foreach;
 
 procedure get_template
   (template_spec in varchar2
@@ -1045,6 +1136,8 @@ begin
     process_placeholders(placeholders => ph, buf => buf);
   
     evaluate_ifs (table_name => table_name, buf => buf);
+    
+    evaluate_foreach (table_name => table_name, buf => buf);
   
     evaluate_columns (table_name => table_name, buf => buf);
     
@@ -1415,6 +1508,7 @@ begin
   l_params(oddgen_execute) := 'No';
   l_params(oddgen_jnl_table) := 'No';
   l_params(oddgen_jnl_trigger) := 'No';
+  l_params(oddgen_apex_page_id) := '';
   return l_params;
 end get_params;
 
@@ -1425,6 +1519,7 @@ begin
                      ,oddgen_jnl_table
                      ,oddgen_jnl_trigger
                      ,oddgen_gen_tapi
+                     ,oddgen_apex_page_id
                      );
 end get_ordered_params;
 
@@ -1456,7 +1551,7 @@ function generate
   params logger.tab_param;
   buf clob := '/*Generated ' || to_char(sysdate,'DD/MM/YYYY HH:MIpm') || '*/' || chr(10);
   ddl clob;
-  post_script constant varchar2(1000) := '/' || chr(10) || 'show errors' || chr(10) || chr(10);
+  ph  key_value_array;
   
   procedure process_template (template_name in varchar2) is
   begin
@@ -1473,7 +1568,7 @@ function generate
           buf := buf || ddl || '/' || chr(10) || sqlerrm || chr(10);
       end;
     else
-      buf := buf || ddl || post_script;
+      buf := buf || ddl || '/' || chr(10) || 'show errors' || chr(10) || chr(10);
     end if;
   end process_template;
 
@@ -1489,6 +1584,12 @@ begin
   
   end if;
 
+  if in_params(oddgen_jnl_trigger) = 'Yes' then
+
+    journal_trigger (table_name => in_object_name);
+  
+  end if;
+  
   if in_params(oddgen_gen_tapi) = 'Yes' then
   
     process_template('tapi_package_spec');
@@ -1497,15 +1598,16 @@ begin
 
   end if;
 
-  if in_params(oddgen_jnl_trigger) = 'Yes' then
-
-    journal_trigger (table_name => in_object_name);
+  if in_params(oddgen_apex_page_id) is not null then
+    
+    ph('Pn_') := 'P' || in_params(oddgen_apex_page_id) || '_';
   
+    buf := buf || gen
+      (template_name => 'codesamples'
+      ,table_name    => in_object_name
+      ,placeholders  => ph);
+    
   end if;
-
-  buf := buf || gen
-    (template_name => 'codesamples'
-    ,table_name    => in_object_name);
 
   logger.log('END', scope, buf, params);
   return buf;

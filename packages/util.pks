@@ -59,10 +59,7 @@ type num_array   is table of number          index by binary_integer;
 type v20_array   is table of varchar2(20)    index by binary_integer;
 type v4000_array is table of varchar2(4000)  index by binary_integer;
 type v32k_array  is table of varchar2(32767) index by binary_integer;
-type str_map     is table of varchar2(4000)  index by varchar2(30); /*index is database column name*/
 subtype msg_array is v32k_array;
-
-null_map str_map;
 
 -- Wrapper for apex_util.set_session_state.
 procedure sv
@@ -109,14 +106,6 @@ function timestamp_val (val in varchar2) return timestamp deterministic;
 
 -- convert a string to a timestamp-with-time-zone
 function timestamp_tz_val (val in varchar2) return timestamp with time zone deterministic;
-
--- call before running validation for a page
-procedure pre_val
-  (label_map     in str_map /*map column name to user-friendly label*/
-  ,item_name_map in str_map /*map column name to APEX page item*/);
-
--- call after running validation
-procedure post_val;
 
 -- if cond is FALSE, add msg to error list
 -- (if cond is NULL (unknown), does not add error)

@@ -163,6 +163,11 @@ procedure del (rv in t_rv);
 
 -- delete multiple rows; array may be sparse
 procedure bulk_del (arr in t_rvarray);
+
+<%FOREACH PARENT>
+-- permanently delete all records for a <%parent_table>
+procedure del_all (<%fk_column> in <%table>.<%fk_column>%type);
+<%END FOREACH>
 <%IF SOFT_DELETE>
 -- undelete a row
 function undel (rv in t_rv) return t_row;
@@ -184,6 +189,13 @@ function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
 
 -- convert to a copy
 function copy (r in t_row) return t_row;
+
+<%FOREACH PARENT>
+-- copy all records from one <%parent_table> to another
+procedure copy_all
+  (src_<%fk_column> in <%table>.<%fk_column>%type
+  ,tgt_<%fk_column> in <%table>.<%fk_column>%type);
+<%END FOREACH>
 
 -- Use these procedures to disable and re-enable the journal trigger just for
 -- this session (to disable for all sessions, just disable the database trigger
@@ -269,25 +281,6 @@ begin
   <%END>
 end append_params;
 
-function label_map return util.str_map is
-  scope logger_logs.scope%type := scope_prefix || 'label_map';
-  params  logger.tab_param;
-  lm      util.str_map;
-begin
-  logger.log('START', scope, null, params);
-
-  <%COLUMNS EXCLUDING GENERATED>
-  lm(C_#COL28#)... := '#Label#';~
-  <%END>
-
-  logger.log('END', scope, null, params);
-  return lm;
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end label_map;
-
 function val (rv in t_rv) return varchar2 is
   -- Validates the record but without reference to any other rows or tables
   -- (i.e. avoid any queries in here).
@@ -302,18 +295,18 @@ begin
   logger.log('START', scope, null, params);
 
   <%COLUMNS EXCLUDING NULLABLE,GENERATED,SURROGATE_KEY,IDENTITY,LOBS,DEFAULT_ON_NULL,VIRTUAL>
-  util.val_not_null (val => rv.#col#, column_name => C_#COL28#);~
+  util.val_not_null (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');~
   <%END>
   <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,LOBS,VIRTUAL>
-  util.val_y (val => rv.#col#, column_name => C_#COL28#);{Y}~
-  util.val_yn (val => rv.#col#, column_name => C_#COL28#);{YN}~
-  util.val_code (val => rv.#col#, column_name => C_#COL28#);{CODE}~
-  util.val_max_len (val => rv.#col#, len => #maxlen#, column_name => C_#COL28#);{VARCHAR2}~
-  util.val_numeric (val => rv.#col#, column_name => C_#COL28#);{NUMBER}~
-  util.val_date (val => rv.#col#, column_name => C_#COL28#);{DATE}~
-  util.val_datetime (val => rv.#col#, column_name => C_#COL28#);{DATETIME}~
-  util.val_timestamp (val => rv.#col#, column_name => C_#COL28#);{TIMESTAMP}~
-  util.val_timestamp_tz (val => rv.#col#, column_name => C_#COL28#);{TIMESTAMP_TZ}~
+  util.val_y (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{Y}~
+  util.val_yn (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{YN}~
+  util.val_code (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{CODE}~
+  util.val_max_len (val => rv.#col#, len => #maxlen#, column_name => C_#COL28#, label => '#Label#');{VARCHAR2}~
+  util.val_numeric (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{NUMBER}~
+  util.val_date (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{DATE}~
+  util.val_datetime (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{DATETIME}~
+  util.val_timestamp (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{TIMESTAMP}~
+  util.val_timestamp_tz (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{TIMESTAMP_TZ}~
   ~
   <%END>
 
@@ -642,6 +635,28 @@ exception
     raise;
 end bulk_del;
 
+<%FOREACH PARENT>
+procedure del_all (<%fk_column> in <%table>.<%fk_column>%type) is
+  scope  logger_logs.scope%type := scope_prefix || 'del_all[for <%parent_table>]';
+  params logger.tab_param;
+  nr     t_row;
+begin
+  logger.append_param(params, '<%fk_column>', <%fk_column>);
+  logger.log('START', scope, null, params);
+  
+  delete <%table> x
+  where  x.<%fk_column> = del_all.<%fk_column>;
+
+  logger.log('delete <%table>: ' || sql%rowcount, scope, null, params);
+
+  logger.log('END', scope, null, params);
+exception
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end del_all;
+<%END FOREACH>
+
 <%IF SOFT_DELETE>
 function undel (rv in t_rv) return t_row is
   scope     logger_logs.scope%type := scope_prefix || 'undel';
@@ -848,6 +863,44 @@ exception
     raise;
 end copy;
 
+<%FOREACH PARENT>
+procedure copy_all
+  (src_<%fk_column> in <%table>.<%fk_column>%type
+  ,tgt_<%fk_column> in <%table>.<%fk_column>%type
+  ) is
+  scope  logger_logs.scope%type := scope_prefix || 'copy_all[for <%parent_table>]';
+  params logger.tab_param;
+  nr     t_row;
+begin
+  logger.append_param(params, 'src_<%fk_column>', src_<%fk_column>);
+  logger.append_param(params, 'tgt_<%fk_column>', tgt_<%fk_column>);
+  logger.log('START', scope, null, params);
+  
+  insert into <%table>
+        (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+         #col#~
+        ,<%END>
+        ,db$src_id
+        ,db$src_version_id)
+  select <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+         x.#col#~
+         copy_all.tgt_<%fk_column>{<%FK_COLUMN>}~
+        ,<%END>
+        ,<%COLUMNS ONLY SURROGATE_KEY,IDENTITY>x.#col#<%END>
+        ,x.db$version_id
+  from   <%table> x
+  where  x.<%fk_column> = copy_all.src_<%fk_column>;
+
+  logger.log('insert <%table>: ' || sql%rowcount, scope, null, params);
+
+  logger.log('END', scope, null, params);
+exception
+  when others then
+    logger.log_error('Unhandled Exception', scope, null, params);
+    raise;
+end copy_all;
+<%END FOREACH>
+
 -- may be used to disable and re-enable the journal trigger for this session
 procedure disable_journal_trigger is
 begin
@@ -923,20 +976,20 @@ r := <%tapi>.t_row
 declare
   r <%tapi>.t_row;
 begin
-  r := <%tapi>.get(<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col#... => :P1_#COL28#~p_#col#... => :P1_#COL28#{ROWID}~, <%END>);
+  r := <%tapi>.get(<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
   <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
-  :P1_#COL28#... := r.#col#;~
-  :P1_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
-  :P1_#COL28#... := to_char(r.#col#, util.datetime_format);{DATETIME}~
-  :P1_#COL28#... := to_char(r.#col#, util.timestamp_format);{TIMESTAMP}~
-  :P1_#COL28#... := to_char(r.#col#, util.timestamp_tz_format);{TIMESTAMP_TZ}~
+  :Pn_#COL28#... := r.#col#;~
+  :Pn_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
+  :Pn_#COL28#... := to_char(r.#col#, util.datetime_format);{DATETIME}~
+  :Pn_#COL28#... := to_char(r.#col#, util.timestamp_format);{TIMESTAMP}~
+  :Pn_#COL28#... := to_char(r.#col#, util.timestamp_tz_format);{TIMESTAMP_TZ}~
   <%END>
 end;
 
 -- e.g. put this in a Form Validation Process returning Error Text
 return <%tapi>.val (rv => <%tapi>.rvtype
   (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
-   #col#... => :P1_#COL28#~
+   #col#... => :Pn_#COL28#~
   ,<%END>));
 
 -- e.g. put this in a Form DML Process
@@ -946,7 +999,7 @@ declare
 begin
   rv := <%tapi>.t_rv
     (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
-     #col#... => :P1_#COL28#~
+     #col#... => :Pn_#COL28#~
     ,<%END>);
   case
   when :REQUEST = 'CREATE' then
@@ -970,7 +1023,7 @@ begin
   end case;
   if :REQUEST != 'DELETE' then
     <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
-    :P1_#COL28#... := r.#col#;~
+    :Pn_#COL28#... := r.#col#;~
     <%END>
   end if;
 end;

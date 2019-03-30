@@ -8,12 +8,6 @@ scope_prefix constant varchar2(31) := lower($$plsql_unit) || '.';
 -- holds validation errors
 g_err msg_array;
 
--- validation error attributes
-g_label_map        str_map;
-g_item_name_map    str_map;
-g_region_id        number;
-g_column_alias_map str_map;
-
 non_date_char exception;
 pragma exception_init (non_date_char, -01830);
 
@@ -56,57 +50,36 @@ begin
   logger.append_param(params, 'column_name', column_name);
   logger.log('START', scope, null, params);
 
-  if instr(l_msg, '#label#') > 0 and label is not null then
-    l_msg := replace(l_msg, '#label#', label);
+  if instr(l_msg, '#LABEL#') > 0 and label is not null then
+    l_msg := replace(l_msg, '#LABEL#', label);
   end if;
-  if instr(l_msg, '#label#') > 0 and column_name is not null and g_label_map.exists(column_name) then
-    l_msg := replace(l_msg, '#label#', g_label_map(column_name));
-  end if;
-  if instr(l_msg, '#label#') > 0 and column_name is not null then
-    l_msg := replace(l_msg, '#label#', user_friendly_label(identifier => column_name));
+  if instr(l_msg, '#LABEL#') > 0 and column_name is not null then
+    l_msg := replace(l_msg, '#LABEL#', user_friendly_label(identifier => column_name));
   end if;
 
   g_err(nvl(g_err.last,0)+1) := l_msg;
 
-  if g_region_id is not null and row_num is not null then
-
-    if column_name is not null and g_column_alias_map.exists(column_name) then
-      column_alias := g_column_alias_map(column_name);
-    elsif column_name is not null then
-      column_alias := column_name;
+  if column_name is not null then
+    if apex_application.g_flow_step_id is not null then
+      item_name := 'P' || apex_application.g_flow_step_id || '_' || column_name;
+    else
+      item_name := column_name;
     end if;
+  end if;
+
+  if item_name is not null then
+
+    -- use original error message format including #LABEL# which will be replaced with item label
+    apex_error.add_error
+      (p_message          => msg
+      ,p_display_location => apex_error.c_inline_with_field_and_notif
+      ,p_page_item_name   => item_name);
+
+  elsif apex_application.g_flow_step_id is not null then
 
     apex_error.add_error
       (p_message          => l_msg
-      ,p_display_location => apex_error.c_inline_with_field_and_notif
-      ,p_region_id        => g_region_id
-      ,p_column_alias     => column_alias
-      ,p_row_num          => row_num);
-
-  else
-
-    if column_name is not null then
-      if g_item_name_map.exists(column_name) then
-        item_name := g_item_name_map(column_name);
-      elsif apex_application.g_flow_step_id is not null then
-        item_name := 'P' || apex_application.g_flow_step_id || '_' || column_name;
-      end if;
-    end if;
-
-    if item_name is not null then
-
-      apex_error.add_error
-        (p_message          => l_msg
-        ,p_display_location => apex_error.c_inline_with_field_and_notif
-        ,p_page_item_name   => item_name);
-
-    elsif apex_application.g_flow_step_id is not null then
-
-      apex_error.add_error
-        (p_message          => l_msg
-        ,p_display_location => apex_error.c_inline_in_notification);
-
-    end if;
+      ,p_display_location => apex_error.c_inline_in_notification);
 
   end if;
 
@@ -297,40 +270,6 @@ exception
     end;
 end timestamp_tz_val;
 
-procedure reset_val is
-begin
-  g_label_map.delete;
-  g_item_name_map.delete;
-  g_column_alias_map.delete;
-  g_region_id := null;
-end reset_val;
-
-procedure pre_val
-  (label_map     in str_map /*map column name to user-friendly label*/
-  ,item_name_map in str_map /*map column name to Apex page item*/
-  ) is
-begin
-  reset_val;
-  g_label_map     := label_map;
-  g_item_name_map := item_name_map;
-end pre_val;
-
--- call after running validation
-procedure post_val is
-  scope  logger_logs.scope%type := scope_prefix || 'post_val';
-  params logger.tab_param;
-begin
-  logger.log('START', scope, null, params);
-
-  reset_val;
-
-  logger.log('END', scope, null, params);
-exception
-  when others then
-    logger.log_error('Unhandled Exception', scope, null, params);
-    raise;
-end post_val;
-
 procedure val_cond
   (cond        in boolean := false
   ,msg         in varchar2
@@ -353,7 +292,7 @@ procedure val_not_null
 begin
   if val is null then
     add_validation_result
-      (msg         => '#label# must be specified'
+      (msg         => '#LABEL# must be specified'
       ,label       => label
       ,column_name => column_name);
   end if;
@@ -368,7 +307,7 @@ procedure val_max_len
 begin
   if length(val) > len then
     add_validation_result
-      (msg         => '#label# cannot be more than ' || len || ' characters (' || length(val) || ')'
+      (msg         => '#LABEL# cannot be more than ' || len || ' characters (' || length(val) || ')'
       ,label       => label
       ,column_name => column_name);
   end if;
@@ -382,7 +321,7 @@ procedure val_y
 begin
   val_cond
     (cond        => val = 'Y'
-    ,msg         => '#label# must be Y or null'
+    ,msg         => '#LABEL# must be Y or null'
     ,label       => label
     ,column_name => column_name);
 end val_y;
@@ -395,7 +334,7 @@ procedure val_yn
 begin
   val_cond
     (cond        => val in ('Y','N')
-    ,msg         => '#label# must be Y or N'
+    ,msg         => '#LABEL# must be Y or N'
     ,label       => label
     ,column_name => column_name);
 end val_yn;
@@ -416,19 +355,19 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid number'
+      ,msg         => '#LABEL# must be a valid number'
       ,label       => label
       ,column_name => column_name);
   
     val_cond
       (cond        => v >= range_low
-      ,msg         => '#label# cannot be less than ' || range_low
+      ,msg         => '#LABEL# cannot be less than ' || range_low
       ,label       => label
       ,column_name => column_name);
   
     val_cond
       (cond        => v <= range_high
-      ,msg         => '#label# cannot be greater than than ' || range_high
+      ,msg         => '#LABEL# cannot be greater than than ' || range_high
       ,label       => label
       ,column_name => column_name);
 
@@ -452,25 +391,25 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid number'
+      ,msg         => '#LABEL# must be a valid number'
       ,label       => label
       ,column_name => column_name);
   
     val_cond
       (cond        => v >= range_low
-      ,msg         => '#label# cannot be less than ' || range_low
+      ,msg         => '#LABEL# cannot be less than ' || range_low
       ,label       => label
       ,column_name => column_name);
   
     val_cond
       (cond        => v <= range_high
-      ,msg         => '#label# cannot be greater than than ' || range_high
+      ,msg         => '#LABEL# cannot be greater than than ' || range_high
       ,label       => label
       ,column_name => column_name);
   
     val_cond
       (cond        => v = trunc(v)
-      ,msg         => '#label# cannot have a fractional value'
+      ,msg         => '#LABEL# cannot have a fractional value'
       ,label       => label
       ,column_name => column_name);
 
@@ -492,7 +431,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid date in the format ' || date_format
+      ,msg         => '#LABEL# must be a valid date in the format ' || date_format
       ,label       => label
       ,column_name => column_name);
 
@@ -515,7 +454,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid date/time in the format ' || datetime_format
+      ,msg         => '#LABEL# must be a valid date/time in the format ' || datetime_format
       ,label       => label
       ,column_name => column_name);
 
@@ -538,7 +477,7 @@ begin
 
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid timestamp in the format ' || timestamp_format
+      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_format
       ,label       => label
       ,column_name => column_name);
 
@@ -561,7 +500,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#label# must be a valid timestamp in the format ' || timestamp_tz_format
+      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_tz_format
       ,label       => label
       ,column_name => column_name);
 
@@ -579,7 +518,7 @@ begin
 
   val_cond
     (cond        => date_val(start_date) <= date_val(end_date)
-    ,msg         => '#label# cannot end prior to the start date'
+    ,msg         => '#LABEL# cannot end prior to the start date'
     ,label       => label
     ,column_name => '');
 
@@ -595,7 +534,7 @@ begin
 
   val_cond
     (cond        => datetime_val(start_dt) <= datetime_val(end_dt)
-    ,msg         => '#label# cannot end prior to the start'
+    ,msg         => '#LABEL# cannot end prior to the start'
     ,label       => label
     ,column_name => '');
 
@@ -616,7 +555,7 @@ begin
 
     val_cond
       (cond        => val member of valid_values
-      ,msg         => '#label#: "' || val || '" is not valid'
+      ,msg         => '#LABEL#: "' || val || '" is not valid'
       ,label       => label
       ,column_name => column_name);
 
@@ -637,7 +576,7 @@ begin
 
     val_cond
       (cond        => instr(val,',') > 0
-      ,msg         => '#label# must be in the format lat,long'
+      ,msg         => '#LABEL# must be in the format lat,long'
       ,label       => label
       ,column_name => column_name);
 
@@ -650,14 +589,14 @@ begin
         (val         => lat
         ,range_low   => -90
         ,range_high  => 90
-        ,label       => '#label# latitude'
+        ,label       => '#LABEL# latitude'
         ,column_name => column_name);
 
       val_numeric
         (val         => lng
         ,range_low   => -180
         ,range_high  => 180
-        ,label       => '#label# longitude'
+        ,label       => '#LABEL# longitude'
         ,column_name => column_name);
 
     end if;
@@ -681,7 +620,7 @@ begin
 
   val_cond
     (cond        => regexp_substr(val, '[A-Za-z0-9_]', '') is null
-    ,msg         => '#label# must contain only alphanumeric characters or underscores'
+    ,msg         => '#LABEL# must contain only alphanumeric characters or underscores'
     ,label       => label
     ,column_name => column_name);
 
