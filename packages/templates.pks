@@ -182,7 +182,7 @@ function to_row (rv in t_rv) return t_row;
 function to_rv (r in t_row) return t_rv;
 
 -- get a row (raise NO_DATA_FOUND if not found; returns default record if parameter is null)
-function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+function get (<%COLUMNS ONLY PK>
               #col# in <%table>.#col#%type~
               p_#col# in varchar2{ROWID}~
              ,<%END>) return t_row;
@@ -237,7 +237,7 @@ begin
   into   db_last_updated_by
         ,db_last_updated_dt
   from   <%table> x
-  where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+  where  <%COLUMNS ONLY PK>
          x.#col#... = rv.#col#~
   and    <%END>;
 
@@ -527,7 +527,7 @@ begin
            x.#col#... = util.timestamp_val(arr(i).#col#){TIMESTAMP}~
            x.#col#... = util.timestamp_tz_val(arr(i).#col#){TIMESTAMP_TZ}~
           ,<%END>
-    where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    where  <%COLUMNS ONLY PK>
            x.#col#... = arr(i).#col#~
     and    <%END>;
 
@@ -608,7 +608,7 @@ begin
   forall i in indices of arr
     update <%table> x
     set    x.deleted_y = 'Y'
-    where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    where  <%COLUMNS ONLY PK>
            x.#col#... = arr(i).#col#~
     and    <%END>;
 
@@ -616,7 +616,7 @@ begin
 <%ELSE>
   forall i in indices of arr
     delete <%table> x
-    where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    where  <%COLUMNS ONLY PK>
            x.#col#... = arr(i).#col#~
     and    <%END>;
 
@@ -714,7 +714,7 @@ begin
   forall i in indices of arr
     update <%table> x
     set    x.deleted_y = null
-    where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    where  <%COLUMNS ONLY PK>
            x.#col#... = arr(i).#col#~
     and    <%END>;
 
@@ -784,7 +784,7 @@ exception
     raise;
 end to_rv;
 
-function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+function get (<%COLUMNS ONLY PK>
               #col# in <%table>.#col#%type~
               p_#col# in varchar2{ROWID}~
              ,<%END>) return t_row is
@@ -792,13 +792,13 @@ function get (<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
   params  logger.tab_param;
   r       t_row;
 begin
-  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+  <%COLUMNS ONLY PK>
   logger.append_param(params, '#col#', #col#);~
   logger.append_param(params, 'p_#col#', p_#col#);{ROWID}~
   <%END>
   logger.log('START', scope, null, params);
 
-  if <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col# is not null~p_#col# is not null{ROWID}~
+  if <%COLUMNS ONLY PK>#col# is not null~p_#col# is not null{ROWID}~
   or <%END> then
   
     select <%COLUMNS INCLUDING ROWID>
@@ -808,7 +808,7 @@ begin
            r.#col#~
           ,<%END>
     from   <%table> x
-    where  <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    where  <%COLUMNS ONLY PK>
            x.#col#... = get.#col#~
            x.#col#... = get.p_rowid{ROWID}~
     and    <%END>;
@@ -976,7 +976,7 @@ r := <%tapi>.t_row
 declare
   r <%tapi>.t_row;
 begin
-  r := <%tapi>.get(<%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
+  r := <%tapi>.get(<%COLUMNS ONLY PK>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
   <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
   :Pn_#COL28#... := r.#col#;~
   :Pn_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
@@ -1039,6 +1039,7 @@ end;
 -- with Target Type = PL/SQL Code
 declare
   rv <%tapi>.t_rv;
+  r  <%tapi>.t_row;
 begin
   rv := <%tapi>.t_rv
     (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
@@ -1048,7 +1049,7 @@ begin
   when 'I' then
     r := <%tapi>.ins (rv => rv);    
     -- Interactive Grid needs the new PK in order to find the new record
-    <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+    <%COLUMNS ONLY PK>
     :#COL#... := r.#col#;~
     <%END>
   when 'U' then

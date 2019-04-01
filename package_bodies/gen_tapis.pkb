@@ -39,6 +39,9 @@ surrogate_key_token    constant varchar2(30) := 'SURROGATE_KEY';
 identity_token         constant varchar2(30) := 'IDENTITY';
 soft_delete_token      constant varchar2(30) := 'SOFT_DELETE';
 
+-- <%COLUMNS ONLY PK> expand to <%COLUMNS ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID>
+only_pk_macro          constant varchar2(100) := 'ONLY SURROGATE_KEY,IDENTITY INCLUDING ROWID';
+
 -- infinite loop protection
 maxiterations          constant integer := 10000;
 
@@ -605,6 +608,10 @@ procedure evaluate_columns
         ,rhs   => colptn);
 
       colcmd := upper(util.trim_whitespace(colcmd));
+      
+      if colcmd = 'ONLY PK' then
+        colcmd := only_pk_macro;
+      end if;
 
       get_options
         (cmd     => colcmd
@@ -697,13 +704,13 @@ procedure evaluate_columns
             util.append_str(colswhere2, '1=2'/*no surrogate key*/, ' or ');
           end if;
         end if;
-        if util.csv_instr(only, default_on_null_token) > 0 then
-          only := util.csv_replace(only, default_on_null_token);
-          util.append_str(colswhere2, q'[default_on_null='YES']', ' or ');
-        end if;
         if util.csv_instr(only, identity_token) > 0 then
           only := util.csv_replace(only, identity_token);
           util.append_str(colswhere2, q'[identity_column='YES']', ' or ');
+        end if;
+        if util.csv_instr(only, default_on_null_token) > 0 then
+          only := util.csv_replace(only, default_on_null_token);
+          util.append_str(colswhere2, q'[default_on_null='YES']', ' or ');
         end if;
         only := expand_column_lists(only);
         if only is not null then
