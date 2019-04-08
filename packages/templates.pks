@@ -968,7 +968,7 @@ from <%table>;
 
 -- e.g. generate a t_row record; remove any columns not needed
 r := <%tapi>.t_row
-  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... => null --#col#~
   ,<%END>);
 
@@ -976,8 +976,12 @@ r := <%tapi>.t_row
 declare
   r <%tapi>.t_row;
 begin
-  r := <%tapi>.get(<%COLUMNS ONLY PK>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
-  <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
+  if :request = 'COPY' then
+    r := venues$tapi.copy(venues$tapi.get(<%COLUMNS ONLY PK>#col#... => :Pn_DB$SRC_ID~~, <%END>));
+  else
+    r := <%tapi>.get(<%COLUMNS ONLY PK>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
+  end if;
+  <%COLUMNS INCLUDING ROWID EXCLUDING LOBS,DB$SECURITY_GROUP_ID>
   :Pn_#COL28#... := r.#col#;~
   :Pn_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
   :Pn_#COL28#... := to_char(r.#col#, util.datetime_format);{DATETIME}~
@@ -987,8 +991,8 @@ begin
 end;
 
 -- e.g. put this in a Form Validation Process returning Error Text
-return <%tapi>.val (rv => <%tapi>.rvtype
-  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+return <%tapi>.val (rv => <%tapi>.t_rv
+  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... => :Pn_#COL28#~
   ,<%END>));
 
@@ -1022,7 +1026,7 @@ begin
     null;
   end case;
   if :REQUEST != 'DELETE' then
-    <%COLUMNS INCLUDING ROWID EXCLUDING LOBS>
+    <%COLUMNS INCLUDING ROWID EXCLUDING LOBS,DB$SECURITY_GROUP_ID>
     :Pn_#COL28#... := r.#col#;~
     <%END>
   end if;
@@ -1030,8 +1034,8 @@ end;
 
 -- e.g. put this in an Interactive Grid validation "PL/SQL Function (returning Error
 -- Text)" For Created and Modified Rows
-<%tapi>.val (rv => <%tapi>.t_rv
-  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID>
+return <%tapi>.val (rv => <%tapi>.t_rv
+  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
    #col#... => :#COL#~
   ,<%END>));
 
@@ -1042,7 +1046,7 @@ declare
   r  <%tapi>.t_row;
 begin
   rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
      #col#... => :#COL#~
     ,<%END>);    
   case :APEX$ROW_STATUS
@@ -1057,6 +1061,18 @@ begin
   when 'D' then
     <%tapi>.del (rv => rv);
   end case;
+end;
+
+-- convert colon-delimited list of ids to an rv array
+declare
+  ids apex_t_varchar2;
+  arr <%tapi>.t_rvarray;
+begin
+  ids := apex_string.split(trim(':' from :Pn_SELECTED),':');
+  for i in 1..ids.count loop
+    arr(nvl(arr.last,0)+1) := <%tapi>.t_rv(<%COLUMNS ONLY PK>#col#... => ids(i)~, <%END>); 
+  end loop;
+  <%tapi>.bulk_undel(arr => arr);
 end;
 
 <%END TEMPLATE>

@@ -137,9 +137,7 @@ procedure drop_all_jobs;
 -- returns Apex version, e.g. 4, 5, etc.
 function apex_major_version return integer;
 
-procedure add_standard_columns
-  (table_name in varchar2
-  ,vpd        in boolean := false);
+procedure add_standard_columns (table_name in varchar2);
 
 procedure add_vpd_policy (table_name in varchar2);
 

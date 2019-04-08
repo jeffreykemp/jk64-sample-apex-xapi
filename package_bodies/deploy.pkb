@@ -243,7 +243,7 @@ begin
       end if;
   end;
   if add_standard_cols then
-    add_standard_columns(table_name, vpd => vpd);
+    add_standard_columns(table_name);
   end if;
   if vpd then
     add_vpd_policy(table_name);
@@ -562,9 +562,7 @@ begin
   return to_number(ret);
 end apex_major_version;
 
-procedure add_standard_columns
-  (table_name in varchar2
-  ,vpd        in boolean := false) is
+procedure add_standard_columns (table_name in varchar2) is
 /*
 Standard columns:
   db$created_by        - user ID who inserted the record
@@ -576,10 +574,6 @@ Standard columns:
 The following are added if the table has a surrogate key or identity column PK:
   db$src_id            - ID of source record that this was a copy of
   db$src_version_id    - version ID of source record that this was a copy of
-
-The following are added if the table needs to support VPD:
-  db$security_group_id - security context for VPD
-  db$global_y          - if Y, the record should be visible across VPD contexts
 */
 begin
   assert(table_name is not null, 'add_standard_columns: table_name cannot be null');
@@ -614,17 +608,6 @@ begin
       ,column_name       => 'db$src_version_id'
       ,column_definition => 'integer');
   end if;
-  if vpd then
-    add_column
-      (table_name        => table_name
-      ,column_name       => 'db$security_group_id'
-      ,column_definition => 'integer default on null ' || security.context_security_group_id
-      ,not_null_value    => '1');
-    add_column
-      (table_name        => table_name
-      ,column_name       => 'db$global_y'
-      ,column_definition => 'varchar2(1)');
-  end if;
   add_column
     (table_name        => table_name
     ,column_name       => 'db$version_id'
@@ -640,6 +623,11 @@ end add_standard_columns;
 
 procedure add_vpd_policy (table_name in varchar2) is
 begin
+  add_column
+    (table_name        => table_name
+    ,column_name       => 'db$security_group_id'
+    ,column_definition => 'integer default on null ' || security.context_security_group_id
+    ,not_null_value    => '-1');
   sys.dbms_rls.add_policy
     (object_name     => table_name
     ,policy_name     => vpd_policy_name

@@ -11,16 +11,6 @@ trigger_disabled constant varchar2(30) := 'DISABLED';
 insufficient_privileges exception;
 pragma exception_init (insufficient_privileges, -01031);
 
-function get_app_user return varchar2 is
-begin
-  return coalesce(sys_context('apex$session','app_user'), v('APP_USER'));
-end get_app_user;
-
-function get_app_session return varchar2 is
-begin
-  return coalesce(sys_context('apex$session','app_session'), v('APP_SESSION'));
-end get_app_session;
-
 procedure set_context
   (attribute in varchar2
   ,value     in varchar2
@@ -107,22 +97,20 @@ procedure post_auth is
   app_user    varchar2(500);
   app_session varchar2(100);
 begin
-  app_user    := get_app_user;
-  app_session := get_app_session;
-  if app_user is not null and app_session is not null then
-    dbms_session.set_identifier(app_user || ':' || app_session);
-  end if;
+  -- the apex$session app_user hasn't been set yet
+  app_user    := v('APP_USER');
+  app_session := v('APP_SESSION');
+  -- client_identifier is currently "nobody:sessionid" so fix it before starting the logging:
+  dbms_session.set_identifier(app_user || ':' || app_session);
   logger.append_param(params, 'apex$session-app_user', sys_context('apex$session','app_user'));
   logger.append_param(params, 'apex$session-session', sys_context('apex$session','session'));
   logger.log('START', scope, null, params);
   
   -- NOTE: do not call any code (e.g. views) which *use* the SYS_CONTEXT that is
   -- setup by this code - we can SET the context variables, but we can't see them yet
-  if app_user is not null then
-    init_db_session
-      (app_user  => app_user
-      ,client_id => app_user || ':' || app_session);
-  end if;
+  init_db_session
+    (app_user  => app_user
+    ,client_id => app_user || ':' || app_session);
   
   set_security_group;
 
@@ -133,11 +121,11 @@ exception
     raise;
 end post_auth;
 
-procedure set_security_group (security_group_id in number := null) is
+procedure set_security_group
+  (security_group_id in number := null
+  ,app_user          in varchar2 := null) is
   scope     logger_logs.scope%type := scope_prefix || 'set_security_group';
   params    logger.tab_param;
-  app_user    varchar2(500);
-  app_session varchar2(100);
   cursor cur
     (app_user          in varchar2
     ,security_group_id in number) is
@@ -150,24 +138,24 @@ procedure set_security_group (security_group_id in number := null) is
   r cur%rowtype;
 begin
   logger.append_param(params,'security_group_id',security_group_id);
+  logger.append_param(params,'security_group_id',app_user);
   logger.log('START', scope, null, params);
   
-  app_user    := get_app_user;
-  app_session := get_app_session;
-  
   --check if user has access to the selected security group; or select one if it is null
-  open cur (app_user, security_group_id);
+  open cur
+    (app_user          => nvl(app_user, sys_context('apex$session','app_user'))
+    ,security_group_id => security_group_id);
   fetch cur into r;
   close cur;
   
   if r.security_group_id is null and security_group_id is not null then
-    raise_application_error(-20000, 'user does not have access to security group (' || app_user || ',' || security_group_id || ')');
+    raise_application_error(-20000, 'user does not have access to security group (' || nvl(app_user, sys_context('apex$session','app_user')) || ',' || security_group_id || ')');
   end if;
   
   set_context
     (attribute => 'security_group_id'
     ,value     => r.security_group_id
-    ,client_id => app_user || ':' || app_session);
+    ,client_id => nvl(app_user, sys_context('apex$session','app_user')) || ':' || sys_context('apex$session','app_session'));
 
   logger.log('END', scope, null, params);
 exception
@@ -179,20 +167,17 @@ end set_security_group;
 function has_role (role_code in varchar2) return boolean is
   scope     logger_logs.scope%type := scope_prefix || 'has_role';
   params    logger.tab_param;
-  app_user  varchar2(500);
   dummy number;
 begin
   logger.append_param(params,'role_code',role_code);
   logger.log('START', scope, null, params);
   
-  app_user := get_app_user;
-  
   select 1 into dummy
   from  user_roles ur
-  where ur.app_user = has_role.app_user
-  and   (ur.role_code in (has_role.role_code,'ADMIN')
+  where ur.app_user = sys_context('apex$session','app_user')
+  and   (ur.role_code in (has_role.role_code,security.administrator)
          or
-         ur.role_code = 'OPERATOR' and has_role.role_code = 'REPORTING')
+         ur.role_code = security.operator and has_role.role_code = security.reporting)
   and   ur.deleted_y is null
   and rownum = 1;
 
@@ -210,16 +195,13 @@ end has_role;
 function has_any_role return boolean is
   scope     logger_logs.scope%type := scope_prefix || 'has_any_role';
   params    logger.tab_param;
-  app_user  varchar2(500);
   dummy number;
 begin
   logger.log('START', scope, null, params);
   
-  app_user := get_app_user;
-  
   select 1 into dummy
   from  user_roles ur
-  where ur.app_user = has_any_role.app_user
+  where ur.app_user = sys_context('apex$session','app_user')
   and   ur.deleted_y is null
   and rownum = 1;
 
@@ -239,9 +221,9 @@ function vpd_policy
   ,object_name in varchar2
   ) return varchar2 is
 begin
-  return 'db$security_group_id='
+  return 'db$security_group_id in(0,'
       || context_security_group_id
-      || q'[ or db$global_y='Y']';
+      || ')';
 end vpd_policy;
 
 procedure disable_journal_trigger
