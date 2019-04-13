@@ -373,10 +373,10 @@ begin
   end if;
 
   insert into <%table>
-        (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+        (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
         #col#~
         ,<%END>)
-  values(<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+  values(<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
          rv.#col#~
          util.num_val(rv.#col#){NUMBER}~
          util.date_val(rv.#col#){DATE}~
@@ -419,10 +419,10 @@ begin
 
   forall i in indices of arr
     insert into <%table>
-           (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+           (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
             #col#~
            ,<%END>)
-    values (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+    values (<%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
             arr(i).#col#~
             util.num_val(arr(i).#col#){NUMBER}~
             util.date_val(arr(i).#col#){DATE}~
@@ -465,7 +465,7 @@ begin
   end if;
 
   update <%table> x
-  set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+  set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
          x.#col#... = rv.#col#~
          x.#col#... = util.num_val(rv.#col#){NUMBER}~
          x.#col#... = util.date_val(rv.#col#){DATE}~
@@ -519,7 +519,7 @@ begin
 
   forall i in indices of arr
     update <%table> x
-    set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL>
+    set    <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,VIRTUAL,DELETED_Y>
            x.#col#... = arr(i).#col#~
            x.#col#... = util.num_val(arr(i).#col#){NUMBER}~
            x.#col#... = util.date_val(arr(i).#col#){DATE}~
@@ -992,7 +992,7 @@ end;
 
 -- e.g. put this in a Form Validation Process returning Error Text
 return <%tapi>.val (rv => <%tapi>.t_rv
-  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
    #col#... => :Pn_#COL28#~
   ,<%END>));
 
@@ -1002,7 +1002,7 @@ declare
   r  <%tapi>.t_row;
 begin
   rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SECURITY_GROUP_ID INCLUDING ROWID>
      #col#... => :Pn_#COL28#~
     ,<%END>);
   case
@@ -1035,7 +1035,7 @@ end;
 -- e.g. put this in an Interactive Grid validation "PL/SQL Function (returning Error
 -- Text)" For Created and Modified Rows
 return <%tapi>.val (rv => <%tapi>.t_rv
-  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
+  (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
    #col#... => :#COL#~
   ,<%END>));
 
@@ -1046,11 +1046,11 @@ declare
   r  <%tapi>.t_row;
 begin
   rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
      #col#... => :#COL#~
     ,<%END>);    
   case :APEX$ROW_STATUS
-  when 'I' then
+  when 'C' then
     r := <%tapi>.ins (rv => rv);    
     -- Interactive Grid needs the new PK in order to find the new record
     <%COLUMNS ONLY PK>
