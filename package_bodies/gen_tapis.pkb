@@ -941,7 +941,9 @@ procedure evaluate_foreach
   function evaluate_foreach_spec (str in varchar2) return varchar2 is
     foreach_spec varchar2(4000);
     foreach_body varchar2(32767);
+    ph           key_value_array;
     buf          varchar2(32767);
+    o_buf        varchar2(32767);
   begin
     util.split_str
       (str   => str
@@ -971,15 +973,17 @@ procedure evaluate_foreach
         order by constraint_name
         ) loop
 
-        buf := buf
-          || replace(replace(replace(replace(replace(replace(foreach_body
-               ,'<%fk_column>',     lower(r.fk_column_name))
-               ,'<%FK_COLUMN>',     upper(r.fk_column_name))
-               ,'<%fk_constraint>', lower(r.constraint_name))
-               ,'<%FK_CONSTRAINT>', upper(r.constraint_name))
-               ,'<%parent_table>',  lower(r.parent_table))
-               ,'<%PARENT_TABLE>',  upper(r.parent_table))
-               ;
+        buf := foreach_body;
+        ph('<%fk_column>')       := lower(r.fk_column_name);
+        ph('<%FK_COLUMN>')       := upper(r.fk_column_name);
+        ph('<%fk_constraint>')   := lower(r.constraint_name);
+        ph('<%FK_CONSTRAINT>')   := upper(r.constraint_name);
+        ph('<%parent_table>')    := lower(r.parent_table);
+        ph('<%PARENT_TABLE>')    := upper(r.parent_table);
+        ph('<%Parent_Entity>')   := util.user_friendly_label(r.parent_table, inflect => util.singular);
+        ph('<%Parent_Entities>') := util.user_friendly_label(r.parent_table, inflect => util.plural);
+        process_placeholders(placeholders => ph, buf => buf);
+        o_buf := o_buf || buf;
       
       end loop;
 
@@ -987,7 +991,7 @@ procedure evaluate_foreach
       raise_application_error(-20000, 'Unrecognised %FOREACH: "' || foreach_spec);
     end case;
     
-    return buf;
+    return o_buf;
   end evaluate_foreach_spec;
 begin
   logger.append_param(params, 'table_name', table_name);

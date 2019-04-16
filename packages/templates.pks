@@ -15,7 +15,7 @@ lov_vw_suffix       constant varchar2(30) := '_VW';
 
 -- column lists
 audit_columns_list     constant varchar2(100) := 'DB$CREATED_DT,DB$CREATED_BY,DB$LAST_UPDATED_DT,DB$LAST_UPDATED_BY';
-generated_columns_list constant varchar2(200) := audit_columns_list||',DB$SECURITY_GROUP_ID,DB$GLOBAL_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$VERSION_ID';
+generated_columns_list constant varchar2(200) := audit_columns_list||',DB$SECURITY_GROUP_ID,DB$SRC_ID,DB$SRC_VERSION_ID,DB$VERSION_ID';
 
 lob_datatypes_list     constant varchar2(100) := 'BLOB,BFILE,CLOB,NCLOB,XMLTYPE';
 
@@ -120,8 +120,9 @@ create or replace package <%tapi> as
 *******************************************************************************/
 
 cursor cur is
-  select x.*
-        ,x.rowid as "ROWID"
+  select x.*<%COLUMNS ONLY ROWID>
+        ,x.rowid as "ROWID"~
+        <%END>
   from   <%table> x;
 subtype t_row is cur%rowtype;
 type t_array is table of t_row index by binary_integer;
@@ -165,7 +166,7 @@ procedure del (rv in t_rv);
 procedure bulk_del (arr in t_rvarray);
 
 <%FOREACH PARENT>
--- permanently delete all records for a <%parent_table>
+-- permanently delete all records for one <%Parent_Entity>
 procedure del_all (<%fk_column> in <%table>.<%fk_column>%type);
 <%END FOREACH>
 <%IF SOFT_DELETE>
@@ -191,7 +192,7 @@ function get (<%COLUMNS ONLY PK>
 function copy (r in t_row) return t_row;
 
 <%FOREACH PARENT>
--- copy all records from one <%parent_table> to another
+-- copy all records from one <%Parent_Entity> to another
 procedure copy_all
   (src_<%fk_column> in <%table>.<%fk_column>%type
   ,tgt_<%fk_column> in <%table>.<%fk_column>%type);
@@ -1001,10 +1002,9 @@ declare
   rv <%tapi>.t_rv;
   r  <%tapi>.t_row;
 begin
-  rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SECURITY_GROUP_ID INCLUDING ROWID>
-     #col#... => :Pn_#COL28#~
-    ,<%END>);
+  <%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  rv.#col#... := :Pn_#COL28#;~
+  <%END>
   case
   when :REQUEST = 'CREATE' then
     r := <%tapi>.ins (rv => rv);
@@ -1045,10 +1045,9 @@ declare
   rv <%tapi>.t_rv;
   r  <%tapi>.t_row;
 begin
-  rv := <%tapi>.t_rv
-    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
-     #col#... => :#COL#~
-    ,<%END>);    
+  <%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  rv.#col#... := :#COL#;~
+  <%END>
   case :APEX$ROW_STATUS
   when 'C' then
     r := <%tapi>.ins (rv => rv);    
