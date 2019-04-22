@@ -52,7 +52,7 @@ from   (select e.*
         where  (e.repeat is null and r = 0)
         or     e.repeat is not null
        ) e
-join   event_types et on et.event_type_code = e.event_type_code
-join   hosts h on h.host_id = e.host_id
-left join venues vn on vn.venue_id = e.venue_id
+join   (select * from event_types where deleted_y is null) et on et.event_type_code = e.event_type_code
+join   (select * from hosts where deleted_y is null) h on h.host_id = e.host_id
+left join (select * from venues where deleted_y is null) vn on vn.venue_id = e.venue_id
 where  (e.repeat_until is null or e.this_start_dt <= e.repeat_until or e.repeat_no = 0);

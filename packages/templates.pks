@@ -978,7 +978,7 @@ declare
   r <%tapi>.t_row;
 begin
   if :request = 'COPY' then
-    r := venues$tapi.copy(venues$tapi.get(<%COLUMNS ONLY PK>#col#... => :Pn_DB$SRC_ID~~, <%END>));
+    r := <%tapi>.copy(<%tapi>.get(<%COLUMNS ONLY PK>#col#... => :Pn_DB$SRC_ID~~, <%END>));
   else
     r := <%tapi>.get(<%COLUMNS ONLY PK>#col#... => :Pn_#COL28#~p_#col#... => :Pn_#COL28#{ROWID}~, <%END>);
   end if;
