@@ -119,16 +119,19 @@ create or replace package <%tapi> as
  from other "get" functions - instead, put all the logic into a view.
 *******************************************************************************/
 
+<%IF ROWID>
 cursor cur is
-  select x.*<%COLUMNS ONLY ROWID>
-        ,x.rowid as "ROWID"~
-        <%END>
+  select x.*
+        ,x.rowid as "ROWID"
   from   <%table> x;
 subtype t_row is cur%rowtype;
+<%ELSE>
+subtype t_row is <%table>%rowtype;
+<%END IF>
 type t_array is table of t_row index by binary_integer;
 
 type t_rv is record
-  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID,DELETED_Y INCLUDING ROWID>
    #col#... varchar2(4000)~
    #col#... <%table>.#col#%type{ID}~
    #col#... <%table>.#col#%type{LOB}~
@@ -220,7 +223,7 @@ create or replace package body <%tapi> as
 scope_prefix constant varchar2(31) := lower($$plsql_unit) || '.';
 
 -- column name constants
-<%COLUMNS EXCLUDING GENERATED>
+<%COLUMNS EXCLUDING GENERATED,DELETED_Y>
 C_#COL28#... constant varchar2(30) := '#COL#';~
 <%END>
 
@@ -276,7 +279,7 @@ procedure append_params
   (params in out logger.tab_param
   ,rv     in t_rv) is
 begin
-  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID,DELETED_Y INCLUDING ROWID>
   logger.append_param(params, 'rv.#col#',... rv.#col#);~
   logger.append_param(params, 'rv.#col#.len', dbms_lob.getlength(rv.#col#));{LOB}~
   <%END>
@@ -298,7 +301,7 @@ begin
   <%COLUMNS EXCLUDING NULLABLE,GENERATED,SURROGATE_KEY,IDENTITY,LOBS,DEFAULT_ON_NULL,VIRTUAL>
   util.val_not_null (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');~
   <%END>
-  <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,LOBS,VIRTUAL>
+  <%COLUMNS EXCLUDING GENERATED,SURROGATE_KEY,IDENTITY,LOBS,VIRTUAL,DELETED_Y>
   util.val_y (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{Y}~
   util.val_yn (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{YN}~
   util.val_code (val => rv.#col#, column_name => C_#COL28#, label => '#Label#');{CODE}~
@@ -742,7 +745,7 @@ begin
   append_params(params, rv);
   logger.log('START', scope, null, params);
 
-  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID,DELETED_Y>
   r.#col#... := rv.#col#;~
   r.#col#... := to_char(rv.#col#, util.date_format);{DATE}~
   r.#col#... := to_char(rv.#col#, util.datetime_format);{DATETIME}~
@@ -768,7 +771,7 @@ begin
   append_params(params, r);
   logger.log('START', scope, null, params);
 
-  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  <%COLUMNS EXCLUDING AUDIT,DB$SECURITY_GROUP_ID,DELETED_Y INCLUDING ROWID>
   rv.#col#... := r.#col#;~
   rv.#col#... := util.date_val(r.#col#);{DATE}~
   rv.#col#... := util.datetime_val(r.#col#);{DATETIME}~
@@ -849,7 +852,6 @@ begin
   <%COLUMNS ONLY GENERATED,SURROGATE_KEY,IDENTITY,ROWID,DELETED_Y EXCLUDING DB$SRC_ID,DB$SRC_VERSION_ID>
   nr.#col#... := null;~
   <%END>
-
   <%COLUMNS ONLY SURROGATE_KEY,IDENTITY>
   nr.db$src_id         := r.#col#;
   nr.db$src_version_id := r.db$version_id;~
@@ -969,7 +971,7 @@ from <%table>;
 
 -- e.g. generate a t_row record; remove any columns not needed
 r := <%tapi>.t_row
-  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  (<%COLUMNS EXCLUDING AUDIT,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID,DELETED_Y INCLUDING ROWID>
    #col#... => null --#col#~
   ,<%END>);
 
@@ -1002,7 +1004,7 @@ declare
   rv <%tapi>.t_rv;
   r  <%tapi>.t_row;
 begin
-  <%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SECURITY_GROUP_ID INCLUDING ROWID>
+  <%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SECURITY_GROUP_ID,DELETED_Y INCLUDING ROWID>
   rv.#col#... := :Pn_#COL28#;~
   <%END>
   case
@@ -1028,6 +1030,10 @@ begin
   if :REQUEST != 'DELETE' then
     <%COLUMNS INCLUDING ROWID EXCLUDING LOBS,DB$SECURITY_GROUP_ID>
     :Pn_#COL28#... := r.#col#;~
+    :Pn_#COL28#... := to_char(r.#col#, util.date_format);{DATE}~
+    :Pn_#COL28#... := to_char(r.#col#, util.datetime_format);{DATETIME}~
+    :Pn_#COL28#... := to_char(r.#col#, util.timestamp_format);{TIMESTAMP}~
+    :Pn_#COL28#... := to_char(r.#col#, util.timestamp_tz_format);{TIMESTAMP_TZ}~
     <%END>
   end if;
 end;
@@ -1035,9 +1041,9 @@ end;
 -- e.g. put this in an Interactive Grid validation "PL/SQL Function (returning Error
 -- Text)" For Created and Modified Rows
 return <%tapi>.val (rv => <%tapi>.t_rv
-  (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
-   #col#... => :#COL#~
-  ,<%END>));
+    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
+     #col#... => :#COL#~
+    ,<%END>));
 
 -- e.g. put this in an "Interactive Grid - Automatic Row Processing (DML)" process
 -- with Target Type = PL/SQL Code
@@ -1045,9 +1051,10 @@ declare
   rv <%tapi>.t_rv;
   r  <%tapi>.t_row;
 begin
-  <%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID INCLUDING ROWID>
-  rv.#col#... := :#COL#;~
-  <%END>
+  rv => <%tapi>.t_rv
+    (<%COLUMNS EXCLUDING AUDIT,DELETED_Y,DB$SRC_ID,DB$SRC_VERSION_ID,DB$SECURITY_GROUP_ID>
+     #col#... => :#COL#~
+    ,<%END>);
   case :APEX$ROW_STATUS
   when 'C' then
     r := <%tapi>.ins (rv => rv);    

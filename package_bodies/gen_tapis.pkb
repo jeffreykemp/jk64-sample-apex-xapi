@@ -852,7 +852,8 @@ procedure evaluate_ifs
     else
       case
       when if_spec = rowid_token then
-        res := deploy.surrogate_key_column (table_name => table_name) is null;
+        res := deploy.identity_column (table_name => table_name) is null
+           and deploy.surrogate_key_column (table_name => table_name) is null;
       when if_spec = lobs_token then
         res := lobs_exist (table_name => table_name);
       when if_spec = soft_delete_token then

@@ -431,7 +431,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#LABEL# must be a valid date in the format ' || date_format
+      ,msg         => '#LABEL# must be a valid date in the format ' || date_format || ' (' || val || ')'
       ,label       => label
       ,column_name => column_name);
 
@@ -454,7 +454,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#LABEL# must be a valid date/time in the format ' || datetime_format
+      ,msg         => '#LABEL# must be a valid date/time in the format ' || datetime_format || ' (' || val || ')'
       ,label       => label
       ,column_name => column_name);
 
@@ -477,7 +477,7 @@ begin
 
     val_cond
       (cond        => v is not null
-      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_format
+      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_format || ' (' || val || ')'
       ,label       => label
       ,column_name => column_name);
 
@@ -500,7 +500,7 @@ begin
     
     val_cond
       (cond        => v is not null
-      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_tz_format
+      ,msg         => '#LABEL# must be a valid timestamp in the format ' || timestamp_tz_format || ' (' || val || ')'
       ,label       => label
       ,column_name => column_name);
 
