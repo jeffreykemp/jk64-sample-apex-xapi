@@ -17,11 +17,6 @@ The author disclaims to the fullest extent authorized by law any and all
 warranties, whether express or implied, including, without limitation, any
 implied warranties of merchantability or fitness for a particular purpose.
 
-## DEMO ##
-
-Apex 18.2:
-TODO
-
 ## PREREQUISITES ##
 
 * Oracle Application Express 18.0 or later
@@ -29,15 +24,11 @@ TODO
 
 ## INSTALLATION INSTRUCTIONS ##
 
-TODO: Refer to the [WIKI](https://bitbucket.org/jk64/jk64-sample-apex-tapi/wiki/Installation)
+TODO
 
 ## CREDITS ##
 
 Includes CSV_UTIL_PKG from the [Alexandria PL/SQL Library](https://github.com/mortenbra/alexandria-plsql-utils).
-
-## FEEDBACK ##
-
-Issues and suggestions may be emailed to <jeff@jk64.com>.
 
 ## DOCUMENTATION ##
 
